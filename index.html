@@ -526,7 +526,21 @@ document.getElementById('rsf').addEventListener('keydown',e=>{if(e.key==='Enter'
 document.getElementById('rn').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('rsf').focus();});
 
 /* ---------- export / import / save ---------- */
-const STORE=(typeof window!=='undefined'&&window.storage)?window.storage:null;
+// Prefer the host-provided storage API; otherwise fall back to the browser's
+// own memory (localStorage) so Save still persists in a normal browser.
+function makeLocalStore(){
+  try{
+    const ls=window.localStorage;const t='__probe__';
+    ls.setItem(t,'1');ls.removeItem(t);              // verify it's usable (not blocked/full)
+    return {
+      async set(k,v){ls.setItem(k,v);},
+      async get(k){const value=ls.getItem(k);return value==null?null:{value};},
+      async delete(k){ls.removeItem(k);},
+    };
+  }catch(e){return null;}
+}
+const STORE=(typeof window!=='undefined'&&window.storage)?window.storage
+  :(typeof window!=='undefined'?makeLocalStore():null);
 const KEY='savedLayout';
 const DEFAULTS={plot:JSON.parse(JSON.stringify(plot)),walls:JSON.parse(JSON.stringify(walls)),wings:JSON.parse(JSON.stringify(wings)),rooms:JSON.parse(JSON.stringify(rooms))};
 let ready=false,saveTimer=null;
