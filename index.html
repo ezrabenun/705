@@ -20,7 +20,9 @@
     border-bottom:1.5px solid var(--ink);padding-bottom:10px;margin-bottom:6px;flex-wrap:wrap;gap:6px;}
   .topbar h1{font-size:15px;letter-spacing:.18em;text-transform:uppercase;margin:0;font-weight:700;}
   .topbar .meta{font-family:var(--mono);font-size:11px;color:var(--ink-soft);letter-spacing:.04em;}
-  svg{width:100%;height:auto;display:block;touch-action:none;-webkit-user-select:none;user-select:none;}
+  .planwrap{overflow:hidden;touch-action:none;position:relative;}
+  svg{width:100%;height:auto;display:block;touch-action:none;-webkit-user-select:none;user-select:none;
+    transform-origin:0 0;}
   #plan *{pointer-events:none;}
   #plan rect[data-room]{pointer-events:all;cursor:move;}
   #plan rect[data-corner]{pointer-events:all;cursor:nwse-resize;}
@@ -98,7 +100,9 @@
     <span class="meta" id="envmeta"></span>
   </div>
 
-  <svg id="plan" role="img" aria-label="Floor plan with editable frame and rooms"></svg>
+  <div class="planwrap" id="planwrap">
+    <svg id="plan" role="img" aria-label="Floor plan with editable frame and rooms"></svg>
+  </div>
 
   <div class="tabs" role="tablist">
     <button id="tab-rooms" role="tab" aria-selected="true">Rooms</button>
@@ -424,21 +428,74 @@ function deltaInfo(area,des){
   return {show:true,t:(d>0?'+':'−')+fmt(Math.abs(Math.round(d*10)/10))+' sf',c:d>0?'var(--blue)':'var(--red)'};
 }
 
-/* ---------- pointer drag / resize ---------- */
+/* ---------- pinch-zoom / pan / drag ---------- */
+const wrap=document.getElementById('planwrap');
+let view={scale:1,tx:0,ty:0};        // CSS transform applied to the SVG
+const pointers=new Map();            // active pointerId -> {x,y} in client px
+let pinch=null;                      // {dist,mid} while two fingers are down
+let panP=null;                       // {id,sx,sy,otx,oty} one-finger background pan
+let gDownT=0,gDownX=0,gDownY=0,gMoved=false,lastTapT=0,lastTapX=0,lastTapY=0;
+const MAXZ=8;
+
+function applyView(){svg.style.transform=`translate(${view.tx}px,${view.ty}px) scale(${view.scale})`;}
+function clampView(){
+  const rect=wrap.getBoundingClientRect();
+  if(view.scale<=1){view.scale=1;view.tx=0;view.ty=0;return;}
+  const cw=rect.width*view.scale, ch=rect.height*view.scale;
+  view.tx=clamp(view.tx, rect.width-cw, 0);   // keep content covering the viewport
+  view.ty=clamp(view.ty, rect.height-ch, 0);
+}
+function resetView(){view={scale:1,tx:0,ty:0};applyView();}
+
 function feetFromEvent(e){
   const pt=svg.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;
-  const sp=pt.matrixTransform(svg.getScreenCTM().inverse());
+  const sp=pt.matrixTransform(svg.getScreenCTM().inverse());   // getScreenCTM includes the CSS zoom transform
   return {x:(sp.x-M_LEFT)/PX-cur.offX, r:cur.yMax-(sp.y-M_TOP)/PX};
 }
+
 svg.addEventListener('pointerdown',e=>{
-  const t=e.target;if(t.getAttribute('data-room')==null)return;
-  const idx=+t.getAttribute('data-room');const corner=t.getAttribute('data-corner');
-  const p=feetFromEvent(e);
-  drag={type:corner?'resize':'move',idx,corner,sx:p.x,sr:p.r,o:Object.assign({},rooms[idx])};
-  svg.setPointerCapture(e.pointerId);e.preventDefault();
+  pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(pointers.size>=2){                 // second finger down → pinch, abort any drag/pan
+    gMoved=true;
+    if(drag){const o=drag.o,r=rooms[drag.idx];r.x=o.x;r.y=o.y;r.w=o.w;r.h=o.h;drag=null;renderPlan();}
+    panP=null;
+    const p=[...pointers.values()];
+    pinch={dist:Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y),mid:{x:(p[0].x+p[1].x)/2,y:(p[0].y+p[1].y)/2}};
+    e.preventDefault();return;
+  }
+  gDownT=Date.now();gDownX=e.clientX;gDownY=e.clientY;gMoved=false;
+  const t=e.target,ri=t.getAttribute('data-room');
+  if(ri!=null){
+    const idx=+ri,corner=t.getAttribute('data-corner');const p=feetFromEvent(e);
+    drag={type:corner?'resize':'move',idx,corner,sx:p.x,sr:p.r,o:Object.assign({},rooms[idx])};
+  }else if(view.scale>1){
+    panP={id:e.pointerId,sx:e.clientX,sy:e.clientY,otx:view.tx,oty:view.ty};
+  }
+  try{svg.setPointerCapture(e.pointerId);}catch(_){}
+  e.preventDefault();
 });
+
 svg.addEventListener('pointermove',e=>{
+  if(pointers.has(e.pointerId))pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(pinch&&pointers.size>=2){
+    const p=[...pointers.values()];
+    const dist=Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y);
+    const mid={x:(p[0].x+p[1].x)/2,y:(p[0].y+p[1].y)/2};
+    const rect=wrap.getBoundingClientRect(),fx=mid.x-rect.left,fy=mid.y-rect.top;
+    const ns=clamp(view.scale*(dist/pinch.dist),1,MAXZ);
+    view.tx+=mid.x-pinch.mid.x; view.ty+=mid.y-pinch.mid.y;   // pan by finger midpoint travel
+    view.tx=fx-(fx-view.tx)*(ns/view.scale);                  // zoom about the pinch focal point
+    view.ty=fy-(fy-view.ty)*(ns/view.scale);
+    view.scale=ns;clampView();applyView();
+    pinch.dist=dist;pinch.mid=mid;return;
+  }
+  if(panP&&e.pointerId===panP.id){
+    gMoved=true;
+    view.tx=panP.otx+(e.clientX-panP.sx);view.ty=panP.oty+(e.clientY-panP.sy);
+    clampView();applyView();return;
+  }
   if(!drag)return;
+  gMoved=true;
   const p=feetFromEvent(e),dx=p.x-drag.sx,dr=p.r-drag.sr,o=drag.o,r=rooms[drag.idx];
   if(drag.type==='move'){
     r.x=clamp(snap(o.x+dx),-cur.offX,(cur.pw-cur.offX)-o.w);
@@ -453,9 +510,19 @@ svg.addEventListener('pointermove',e=>{
   }
   renderPlan();
 });
-function endDrag(){if(!drag)return;drag=null;renderList();scheduleSave();}
-svg.addEventListener('pointerup',endDrag);
-svg.addEventListener('pointercancel',endDrag);
+
+function endPointer(e){
+  pointers.delete(e.pointerId);
+  if(pointers.size<2)pinch=null;
+  if(panP&&e.pointerId===panP.id)panP=null;
+  if(drag){drag=null;renderList();scheduleSave();}
+  if(pointers.size===0&&!gMoved&&Date.now()-gDownT<300){   // double-tap empty/room → reset zoom
+    if(Date.now()-lastTapT<300&&Math.hypot(e.clientX-lastTapX,e.clientY-lastTapY)<30){resetView();lastTapT=0;}
+    else{lastTapT=Date.now();lastTapX=e.clientX;lastTapY=e.clientY;}
+  }
+}
+svg.addEventListener('pointerup',endPointer);
+svg.addEventListener('pointercancel',endPointer);
 
 /* ---------- room list ---------- */
 const list=document.getElementById('roomlist');
