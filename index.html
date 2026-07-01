@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>First Floor — Plan</title>
+<style>
+  :root{
+    --paper:#FCFBF8; --ink:#20303F; --ink-soft:#5A6B7A; --red:#B24A2A;
+    --blue:#2C5C8A; --green:#2F7D54; --grid:#ECEFF2; --line:#D8DCE0; --wall:#5B6675;
+    --sansr:"Helvetica Neue",Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono","Roboto Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;background:#EDEAE3;color:var(--ink);font-family:var(--sansr);}
+  .sheet{max-width:1060px;margin:18px auto;background:var(--paper);
+    border:1px solid #C9CCC4;box-shadow:0 1px 0 #fff inset,0 10px 30px rgba(20,30,40,.10);
+    padding:22px 22px 14px;}
+  .topbar{display:flex;justify-content:space-between;align-items:baseline;
+    border-bottom:1.5px solid var(--ink);padding-bottom:10px;margin-bottom:6px;flex-wrap:wrap;gap:6px;}
+  .topbar h1{font-size:15px;letter-spacing:.18em;text-transform:uppercase;margin:0;font-weight:700;}
+  .topbar .meta{font-family:var(--mono);font-size:11px;color:var(--ink-soft);letter-spacing:.04em;}
+  svg{width:100%;height:auto;display:block;touch-action:none;-webkit-user-select:none;user-select:none;}
+  #plan *{pointer-events:none;}
+  #plan rect[data-room]{pointer-events:all;cursor:move;}
+  #plan rect[data-corner]{pointer-events:all;cursor:nwse-resize;}
+
+  .tabs{display:flex;gap:0;margin-top:12px;border-bottom:1.5px solid var(--ink);}
+  .tabs button{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+    background:none;border:none;border-bottom:3px solid transparent;color:var(--ink-soft);
+    padding:8px 14px;cursor:pointer;margin-bottom:-1.5px;}
+  .tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--red);font-weight:700;}
+  .pane{display:none;padding-top:12px;}
+  .pane.on{display:block;}
+
+  .panel{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
+  .card{border:1px solid var(--line);padding:8px 9px;}
+  .card h3{margin:0 0 6px;font-family:var(--mono);font-size:11px;letter-spacing:.12em;
+    text-transform:uppercase;border-bottom:1px solid var(--line);padding-bottom:4px;}
+  .fld{display:flex;justify-content:space-between;align-items:center;margin:5px 0;}
+  .fld label{font-family:var(--mono);font-size:10px;letter-spacing:.06em;color:var(--ink-soft);}
+  .fld input{width:64px;font-family:var(--mono);font-size:12px;text-align:right;
+    border:1px solid var(--line);background:#fff;padding:3px 5px;color:var(--ink);}
+  input:focus-visible{outline:2px solid var(--red);outline-offset:1px;}
+
+  .addrow{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px;}
+  .addrow .grp{display:flex;flex-direction:column;gap:3px;}
+  .addrow label{font-family:var(--mono);font-size:10px;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--ink-soft);}
+  .addrow input{font-family:var(--mono);font-size:13px;border:1px solid var(--line);
+    background:#fff;padding:6px 8px;color:var(--ink);}
+  .addrow input.name{width:180px;}
+  .addrow input.sf{width:90px;text-align:right;}
+  .btn{font-family:var(--mono);font-size:11px;letter-spacing:.06em;background:var(--ink);
+    border:1px solid var(--ink);color:var(--paper);padding:7px 12px;cursor:pointer;}
+  .btn:hover{background:#2c4255;}
+  .btn.ghost{background:var(--paper);color:var(--ink);}
+  .btn.ghost:hover{background:#eee;}
+  .io{display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap;}
+  .iostatus{font-family:var(--mono);font-size:11px;color:var(--green);}
+
+  table.rooms{width:100%;border-collapse:collapse;font-size:13px;}
+  table.rooms th{font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--ink-soft);text-align:right;padding:6px 8px;border-bottom:1px solid var(--line);font-weight:400;}
+  table.rooms th.l,table.rooms td.l{text-align:left;}
+  table.rooms td{padding:5px 8px;border-bottom:1px solid var(--grid);font-family:var(--mono);}
+  table.rooms input{font-family:var(--mono);font-size:12px;border:1px solid var(--line);
+    background:#fff;padding:4px 5px;color:var(--ink);}
+  table.rooms input.nm{width:130px;text-align:left;}
+  table.rooms input.num{width:54px;text-align:right;}
+  .sw{display:inline-block;width:11px;height:11px;border-radius:2px;vertical-align:middle;margin-right:7px;}
+  .badge{font-family:var(--mono);font-size:12px;font-weight:700;}
+  .del{border:none;background:none;color:var(--ink-soft);cursor:pointer;font-size:15px;line-height:1;padding:2px 4px;}
+  .del:hover{color:var(--red);}
+  .empty{font-family:var(--mono);font-size:12px;color:var(--ink-soft);padding:14px 4px;}
+  .summary{font-family:var(--mono);font-size:12px;color:var(--ink);margin-top:12px;
+    border-top:1px dashed var(--line);padding-top:10px;display:flex;gap:18px;flex-wrap:wrap;}
+  .summary b{color:var(--red);}
+
+  .titleblock{display:flex;justify-content:space-between;font-family:var(--mono);
+    font-size:10px;color:var(--ink-soft);letter-spacing:.06em;border-top:1.5px solid var(--ink);
+    margin-top:14px;padding-top:6px;flex-wrap:wrap;gap:4px;}
+  .dim{font-family:var(--mono);font-size:12px;fill:var(--red);}
+  .winglet{font-family:var(--mono);font-size:11px;fill:var(--ink-soft);letter-spacing:.05em;}
+  .rmname{font-family:var(--sansr);font-weight:700;font-size:12px;fill:var(--ink);}
+  .rmdim{font-family:var(--mono);font-size:11px;fill:var(--ink);}
+  .rmsf{font-family:var(--mono);font-size:10px;fill:var(--ink-soft);}
+  .rmdelta{font-family:var(--mono);font-size:11px;font-weight:700;}
+  .frontlabel{font-family:var(--mono);font-size:11px;letter-spacing:.2em;fill:var(--ink-soft);}
+  @media (max-width:640px){.panel{grid-template-columns:repeat(2,1fr);}.topbar h1{font-size:13px;}
+    .addrow input.name{width:140px;}}
+</style>
+</head>
+<body>
+<div class="sheet">
+  <div class="topbar">
+    <h1>First Floor · Plan</h1>
+    <span class="meta" id="envmeta"></span>
+  </div>
+
+  <svg id="plan" role="img" aria-label="Floor plan with editable frame and rooms"></svg>
+
+  <div class="tabs" role="tablist">
+    <button id="tab-rooms" role="tab" aria-selected="true">Rooms</button>
+    <button id="tab-frame" role="tab" aria-selected="false">Frame</button>
+    <button id="tab-plot" role="tab" aria-selected="false">Plot</button>
+    <button id="tab-walls" role="tab" aria-selected="false">Walls</button>
+  </div>
+
+  <div class="io">
+    <button class="btn" id="savebtn">Save</button>
+    <button class="btn ghost" id="exportbtn">⬇ Export</button>
+    <button class="btn ghost" id="importbtn">⬆ Import</button>
+    <button class="btn ghost" id="resetbtn">Reset to defaults</button>
+    <input type="file" id="importfile" accept="application/json,.json" hidden>
+    <span class="iostatus" id="iostatus"></span>
+  </div>
+
+  <!-- ROOMS -->
+  <div class="pane on" id="pane-rooms">
+    <div class="addrow">
+      <div class="grp"><label for="rn">Room name</label>
+        <input class="name" id="rn" type="text" placeholder="e.g. Kitchen"></div>
+      <div class="grp"><label for="rsf">Desired sf</label>
+        <input class="sf" id="rsf" type="number" min="1" step="1" placeholder="200"></div>
+      <button class="btn" id="addbtn">Add room</button>
+    </div>
+    <table class="rooms">
+      <thead><tr>
+        <th class="l">Room</th><th>Desired</th><th>W</th><th>D</th>
+        <th>Net</th><th>Δ vs desired</th><th>Open</th><th></th>
+      </tr></thead>
+      <tbody id="roomlist"></tbody>
+    </table>
+    <div class="summary" id="summary"></div>
+  </div>
+
+  <!-- FRAME -->
+  <div class="pane" id="pane-frame">
+    <div class="panel" id="panel"></div>
+  </div>
+
+  <!-- PLOT -->
+  <div class="pane" id="pane-plot">
+    <div class="panel" style="grid-template-columns:repeat(2,1fr);max-width:540px">
+      <div class="card"><h3>Lot size</h3>
+        <div class="fld"><label>Width</label><input type="number" id="p-pw" min="1" step="1"></div>
+        <div class="fld"><label>Depth</label><input type="number" id="p-pd" min="1" step="1"></div>
+      </div>
+      <div class="card"><h3>Frame position</h3>
+        <div class="fld"><label>Front setback</label><input type="number" id="p-offF" min="0" step="1"></div>
+        <div class="fld"><label>Right setback</label><input type="number" id="p-offR" min="0" step="1"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- WALLS -->
+  <div class="pane" id="pane-walls">
+    <div class="panel" style="grid-template-columns:repeat(2,1fr);max-width:540px">
+      <div class="card"><h3>Wall thickness (inches)</h3>
+        <div class="fld"><label>Exterior</label><input type="number" id="w-ext" min="0" step="0.25"></div>
+        <div class="fld"><label>Interior</label><input type="number" id="w-int" min="0" step="0.25"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="titleblock">
+    <span>GRID = 1'-0"  ·  DRAG ROOM TO MOVE · DRAG CORNERS TO RESIZE</span>
+    <span>BOTTOM = FRONT / STREET · TOP = REAR</span>
+    <span>SHEET A-1 · DRAFT</span>
+  </div>
+</div>
+
+<script>
+const SVGNS="http://www.w3.org/2000/svg";
+const svg=document.getElementById('plan');
+const PX=10, M_LEFT=92, M_TOP=78, M_RIGHT=40, M_BOT=58;
+const NAME=["A","B","C","D","E","F","G","H"];
+const FILL=["#DCE6EC","#E6E1D8","#EBD9CE","#DEE7E0","#E6DCEA","#E0E8E6","#ECE3D2","#DDE2EC"];
+const RC=["#2C5C8A","#7A4E8C","#2F7D54","#B2792A","#A23A5B","#3A7E8C","#8A5A2C","#4A5A8A"];
+
+let wings=[
+  {w:20.8,d:50,s:0},
+  {w:21,d:38,s:0},
+  {w:11.6,d:31,s:8.41},
+  {w:8.3,d:42.5,s:7.41},
+  {w:13.3,d:43.5,s:6.41},
+];
+// rooms: x = ft from left, y = ft from FRONT(bottom), w wide, h deep
+let rooms=[
+  {name:"Kitchen", desired:400, x:0, y:30, w:21, h:20, color:"#2C5C8A"},
+  {name:"Dining", desired:300, x:21, y:23, w:21, h:15, color:"#7A4E8C"},
+  {name:"Living", desired:320, x:53.5, y:34, w:21.5, h:16, color:"#2F7D54"},
+  {name:"Dinette", desired:156, x:42, y:23, w:11.5, h:16.5, color:"#B2792A"},
+  {name:"Den", desired:225, x:58.5, y:18.5, w:16.5, h:15.5, color:"#A23A5B"},
+  {name:"Full Bath", desired:48, x:53.5, y:7.5, w:8, h:6.5, color:"#3A7E8C"},
+  {name:"Half Bath", desired:27, x:53.5, y:14, w:8, h:4.5, color:"#8A5A2C"},
+  {name:"Study/Guest", desired:156, x:61.5, y:6.5, w:13.5, h:12, color:"#4A5A8A"},
+  {name:"Entrance & Stairs", desired:288, x:21, y:0, w:17, h:18.5, color:"#2C5C8A"},
+  {name:"Shed", desired:240, x:0, y:0, w:21, h:12, color:"#7A4E8C"},
+  {name:"Butler Kitchen", desired:112, x:0, y:23, w:16, h:7, color:"#8A5A2C"},
+  {name:"Mudroom", desired:71.5, x:5, y:16.5, w:11, h:6.5, color:"#B2792A"},
+  {name:"Boiler", desired:34, x:0, y:12, w:7.5, h:4.5, color:"#4A5A8A"},
+  {name:"Bed & Laundry", desired:156, x:38, y:8.5, w:15.5, h:10, color:"#3A7E8C"},
+  {name:"Mud Closet", desired:21, x:7.5, y:12, w:8.5, h:4.5, color:"#8A5A2C"},
+  {name:"Outdoor Kitchen & Dining", desired:650, x:21, y:38, w:32.5, h:21.5, color:"#9C7B4D", open:true},
+  {name:"Pool Area", desired:2254, x:21, y:59.5, w:46, h:50, color:"#2C5C8A", open:true},
+  {name:"Setback 10ft", desired:1000, x:-15, y:109.75, w:100, h:10, color:"#7A4E8C", open:true},
+  {name:"Setside 10ft", desired:1500, x:75, y:-30.25, w:10, h:150, color:"#2F7D54", open:true},
+  {name:"Cabana", desired:360, x:60, y:65.5, w:15, h:24, color:"#B2792A", open:true},
+  {name:"30 setback", desired:30, x:73.5, y:89.5, w:1, h:30, color:"#A23A5B", open:true},
+  {name:"Volyball", desired:2535, x:-15, y:54.75, w:39, h:65, color:"#3A7E8C", open:true},
+  {name:"closet", desired:18, x:38, y:0, w:3.5, h:8.5, color:"#8A5A2C"},
+];
+let plot={pw:100,pd:150,offF:30.25,offR:10};   // lot W×D; frame front setback & right-side setback
+let walls={ext:7,int:4.75};                  // wall thickness in INCHES
+let cur={TW:0,MD:0};
+let drag=null;
+
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const snap=v=>Math.round(v*2)/2;
+const fmt=n=>Number.isInteger(n)?(''+n):(''+(+n.toFixed(2)));
+function el(t,a){const e=document.createElementNS(SVGNS,t);for(const k in a)e.setAttribute(k,a[k]);return e;}
+function txt(x,y,cls,str,anchor){const t=el('text',{x,y,class:cls,'text-anchor':anchor||'middle'});t.textContent=str;return t;}
+function ft(n){return fmt(n)+"'";}
+function ftIn(v){let f=Math.floor(v+1e-6);let inch=Math.round((v-f)*12);if(inch===12){f++;inch=0;}return f+"'-"+inch+'"';}
+const inFt=v=>v/12;
+function inFoot(px,py){for(let i=0;i<wings.length;i++){const x0=cur.xE[i],x1=cur.xE[i+1],f=wings[i].s,b=wings[i].s+wings[i].d;if(px>=x0&&px<=x1&&py>=f&&py<=b)return true;}return false;}
+function roomWalls(r){const e=0.3;return {L:!inFoot(r.x-e,r.y+r.h/2),R:!inFoot(r.x+r.w+e,r.y+r.h/2),F:!inFoot(r.x+r.w/2,r.y-e),B:!inFoot(r.x+r.w/2,r.y+r.h+e)};}
+function netDims(r){const w=roomWalls(r);const hw=s=>(s?walls.ext:walls.int)/24;return {nw:Math.max(0,r.w-hw(w.L)-hw(w.R)),nh:Math.max(0,r.h-hw(w.F)-hw(w.B)),w};}
+function roomArea(r){if(r.open)return r.w*r.h;const n=netDims(r);return n.nw*n.nh;}
+
+/* ---------- tabs ---------- */
+function setTab(which){
+  ['rooms','frame','plot','walls'].forEach(t=>{
+    document.getElementById('tab-'+t).setAttribute('aria-selected',t===which);
+    document.getElementById('pane-'+t).classList.toggle('on',t===which);
+  });
+}
+['rooms','frame','plot','walls'].forEach(t=>document.getElementById('tab-'+t).onclick=()=>setTab(t));
+
+/* ---------- frame editor ---------- */
+const panel=document.getElementById('panel');
+function buildFramePanel(){
+  panel.innerHTML=wings.map((s,i)=>`<div class="card"><h3>Wing ${NAME[i]}</h3>`+
+    [['w','Width',s.w],['d','Depth',s.d],['s','Setback',s.s]]
+    .map(([k,lbl,v])=>`<div class="fld"><label>${lbl}</label>`+
+      `<input type="number" data-wi="${i}" data-wk="${k}" value="${fmt(v)}" min="0" step="0.5"></div>`).join('')+`</div>`).join('');
+}
+buildFramePanel();
+panel.addEventListener('input',e=>{
+  const i=e.target.dataset.wi,k=e.target.dataset.wk;if(i==null)return;
+  const v=parseFloat(e.target.value);if(isNaN(v))return;
+  wings[i][k]=Math.max(0,v);renderPlan();scheduleSave();
+});
+
+/* ---------- plot editor ---------- */
+function buildPlotPanel(){
+  document.getElementById('p-pw').value=fmt(plot.pw);
+  document.getElementById('p-pd').value=fmt(plot.pd);
+  document.getElementById('p-offF').value=fmt(plot.offF);
+  document.getElementById('p-offR').value=fmt(plot.offR);
+}
+[['p-pw','pw'],['p-pd','pd'],['p-offF','offF'],['p-offR','offR']].forEach(([id,key])=>{
+  document.getElementById(id).addEventListener('input',e=>{
+    const v=Math.max(0,parseFloat(e.target.value)||0);
+    plot[key]=v;renderPlan();scheduleSave();
+  });
+});
+buildPlotPanel();
+
+/* ---------- walls editor ---------- */
+function buildWallsPanel(){
+  document.getElementById('w-ext').value=fmt(walls.ext);
+  document.getElementById('w-int').value=fmt(walls.int);
+}
+[['w-ext','ext'],['w-int','int']].forEach(([id,key])=>{
+  document.getElementById(id).addEventListener('input',e=>{
+    walls[key]=Math.max(0,parseFloat(e.target.value)||0);renderPlan();scheduleSave();
+  });
+});
+buildWallsPanel();
+
+/* ---------- geometry helpers ---------- */
+function geom(){
+  const xE=[0];wings.forEach(s=>xE.push(xE[xE.length-1]+s.w));
+  const TW=xE[xE.length-1];
+  const MD=Math.max(...wings.map(s=>s.s+s.d),1);
+  return {xE,TW,MD};
+}
+const fx=x=>M_LEFT+(x+cur.offX)*PX;       // building x → screen (offset within lot)
+const fyR=r=>M_TOP+(cur.yMax-r)*PX;       // building y from front → screen
+
+/* ---------- plan render ---------- */
+function renderPlan(){
+  while(svg.firstChild)svg.removeChild(svg.firstChild);
+  const {xE,TW,MD}=geom();
+  const offX=plot.pw-plot.offR-TW;     // building left edge from lot left
+  const offF=plot.offF;                // building front from lot front
+  const yMax=plot.pd-offF;             // building-y at lot rear (top of drawing)
+  cur={TW,MD,xE,offX,offF,yMax,pw:plot.pw,pd:plot.pd};
+  const area=wings.reduce((a,s)=>a+s.w*s.d,0);
+  const vbW=M_LEFT+plot.pw*PX+M_RIGHT, vbH=M_TOP+plot.pd*PX+M_BOT;
+  svg.setAttribute('viewBox',`0 0 ${vbW} ${vbH}`);
+  document.getElementById('envmeta').textContent=
+    `LOT ${ft(plot.pw)} × ${ft(plot.pd)} · FRAME ${ft(TW)} × ${ft(MD)} · FOOTPRINT ${area.toLocaleString()} SF`;
+
+  // lot bounds in building coords
+  const xL=-offX, xR=plot.pw-offX, yF=-offF, yB=plot.pd-offF;
+
+  // lot fill + 5ft grid
+  svg.appendChild(el('rect',{x:fx(xL),y:fyR(yB),width:plot.pw*PX,height:plot.pd*PX,fill:'#EFF2E8'}));
+  for(let f=0;f<=plot.pw;f+=5)svg.appendChild(el('line',{x1:fx(xL+f),y1:fyR(yF),x2:fx(xL+f),y2:fyR(yB),stroke:'var(--grid)','stroke-width':f%25===0?1:.5}));
+  for(let f=0;f<=plot.pd;f+=5)svg.appendChild(el('line',{x1:fx(xL),y1:fyR(yF+f),x2:fx(xR),y2:fyR(yF+f),stroke:'var(--grid)','stroke-width':f%25===0?1:.5}));
+
+  // wing floor tints + outline points + letters
+  wings.forEach((s,i)=>svg.appendChild(el('rect',{x:fx(xE[i]),y:fyR(s.s+s.d),width:s.w*PX,height:s.d*PX,
+    fill:FILL[i],'fill-opacity':.35,stroke:'#C2C8CD','stroke-width':1})));
+  let pts=[];
+  for(let i=0;i<wings.length;i++){pts.push([xE[i],wings[i].s+wings[i].d]);pts.push([xE[i+1],wings[i].s+wings[i].d]);}
+  for(let i=wings.length-1;i>=0;i--){pts.push([xE[i+1],wings[i].s]);pts.push([xE[i],wings[i].s]);}
+  wings.forEach((s,i)=>svg.appendChild(txt(fx(xE[i])+11,fyR(s.s+s.d)+16,'winglet',NAME[i],'start')));
+
+  // (lot lines, dimensions & front label are drawn after rooms, below)
+
+
+  // rooms — pass 1: floor fills (+ open-space outline)
+  rooms.forEach((r,i)=>{
+    const x=fx(r.x), y=fyR(r.y+r.h), pxW=r.w*PX, pxH=r.h*PX;
+    svg.appendChild(el('rect',{x,y,width:pxW,height:pxH,fill:r.color,'fill-opacity':.18,'data-room':i}));
+    if(r.open)svg.appendChild(el('rect',{x,y,width:pxW,height:pxH,fill:'none',stroke:r.color,'stroke-width':2,'stroke-dasharray':'6 4'}));
+  });
+  // rooms — pass 2: interior partition bands (exterior sides handled by the shell)
+  const it=inFt(walls.int);
+  const band=(bx0,by0,bx1,by1)=>svg.appendChild(el('rect',{x:fx(bx0),y:fyR(by1),width:(bx1-bx0)*PX,height:(by1-by0)*PX,fill:'var(--wall)'}));
+  rooms.forEach(r=>{
+    if(r.open)return;
+    const w=roomWalls(r);
+    if(!w.L)band(r.x-it/2,r.y-it/2,r.x+it/2,r.y+r.h+it/2);
+    if(!w.R)band(r.x+r.w-it/2,r.y-it/2,r.x+r.w+it/2,r.y+r.h+it/2);
+    if(!w.F)band(r.x-it/2,r.y-it/2,r.x+r.w+it/2,r.y+it/2);
+    if(!w.B)band(r.x-it/2,r.y+r.h-it/2,r.x+r.w+it/2,r.y+r.h+it/2);
+  });
+  // exterior wall shell (along footprint outline)
+  svg.appendChild(el('path',{d:"M "+pts.map(p=>fx(p[0])+" "+fyR(p[1])).join(" L ")+" Z",
+    fill:'none',stroke:'var(--ink)','stroke-width':Math.max(1.5,walls.ext/12*PX),'stroke-linejoin':'miter'}));
+  // rooms — pass 3: labels + handles
+  rooms.forEach((r,i)=>{
+    const col=r.color, pxW=r.w*PX, pxH=r.h*PX;
+    const cx=fx(r.x+r.w/2), cy=fyR(r.y+r.h/2);
+    const nd=netDims(r);
+    const a=r.open?r.w*r.h:nd.nw*nd.nh;
+    const di=deltaInfo(a,r.desired);
+    const dimStr=r.open?(ft(r.w)+" × "+ft(r.h)):(ftIn(nd.nw)+" × "+ftIn(nd.nh));
+    const lineH=13;
+    const cand=[{c:'rmname',t:r.name}];
+    if(pxW>=48)cand.push({c:'rmdim',t:dimStr});
+    if(di.show)cand.push({c:'rmdelta',t:di.t,fill:di.c});
+    if(pxW>=48)cand.push({c:'rmsf',t:fmt(Math.round(a*10)/10)+" sf"});
+    const nShow=Math.max(1,Math.min(cand.length,Math.floor((pxH-2)/lineH)));
+    const show=cand.slice(0,nShow);
+    show.forEach((ln,k)=>{
+      const t=txt(cx, cy+(k-(show.length-1)/2)*lineH+4, ln.c, ln.t);
+      if(ln.fill)t.setAttribute('fill',ln.fill);
+      svg.appendChild(t);
+    });
+    [['fl',r.x,r.y],['fr',r.x+r.w,r.y],['bl',r.x,r.y+r.h],['br',r.x+r.w,r.y+r.h]].forEach(([c,hx,hr])=>{
+      svg.appendChild(el('rect',{x:fx(hx)-4,y:fyR(hr)-4,width:8,height:8,fill:'#fff',stroke:col,'stroke-width':1.5,
+        'data-room':i,'data-corner':c}));
+    });
+  });
+
+  // ===== lot lines, dimensions & labels (on top) =====
+  const pcol='#5E6B3A';
+  const dimT=(x,y,t,col,rot)=>{const e=txt(x,y,'dim',t);e.setAttribute('fill',col||'var(--red)');if(rot)e.setAttribute('transform',`rotate(${rot} ${x} ${y})`);svg.appendChild(e);};
+  const tk=(x1,y1,x2,y2,col)=>svg.appendChild(el('line',{x1,y1,x2,y2,stroke:col||'var(--red)','stroke-width':1}));
+
+  // lot boundary (property line)
+  svg.appendChild(el('rect',{x:fx(xL),y:fyR(yB),width:cur.pw*PX,height:cur.pd*PX,
+    fill:'none',stroke:pcol,'stroke-width':2,'stroke-dasharray':'14 4 3 4'}));
+  // lot width (top) & depth (left)
+  const pty=fyR(yB)-22;
+  svg.appendChild(el('line',{x1:fx(xL),y1:pty,x2:fx(xR),y2:pty,stroke:pcol,'stroke-width':1}));
+  tk(fx(xL),pty-4,fx(xL),pty+4,pcol);tk(fx(xR),pty-4,fx(xR),pty+4,pcol);
+  dimT((fx(xL)+fx(xR))/2,pty-6,ft(cur.pw)+" LOT",pcol);
+  const pdx=M_LEFT-30;
+  svg.appendChild(el('line',{x1:pdx,y1:fyR(yF),x2:pdx,y2:fyR(yB),stroke:pcol,'stroke-width':1}));
+  tk(pdx-4,fyR(yF),pdx+4,fyR(yF),pcol);tk(pdx-4,fyR(yB),pdx+4,fyR(yB),pcol);
+  dimT(pdx-6,fyR((yF+yB)/2),ft(cur.pd)+" LOT",pcol,-90);
+
+  // frame width (in front yard) with per-wing ticks
+  const wy=fyR(-Math.min(cur.offF*0.5,12));
+  svg.appendChild(el('line',{x1:fx(0),y1:wy,x2:fx(cur.TW),y2:wy,stroke:'var(--red)','stroke-width':1}));
+  for(let i=0;i<=wings.length;i++)tk(fx(cur.xE[i]),wy-4,fx(cur.xE[i]),wy+4);
+  dimT(fx(cur.TW/2),wy-6,ft(cur.TW));
+  wings.forEach((s,i)=>dimT(fx((cur.xE[i]+cur.xE[i+1])/2),wy+14,ft(s.w)));
+
+  // front setback (right side yard, vertical)
+  const fsx=fx(cur.TW)+Math.min((fx(xR)-fx(cur.TW))*0.5,16);
+  svg.appendChild(el('line',{x1:fsx,y1:fyR(yF),x2:fsx,y2:fyR(0),stroke:'var(--red)','stroke-width':1,'stroke-dasharray':'4 3'}));
+  tk(fsx-4,fyR(yF),fsx+4,fyR(yF));tk(fsx-4,fyR(0),fsx+4,fyR(0));
+  dimT(fsx+4,(fyR(yF)+fyR(0))/2,ft(cur.offF)+" front",'var(--red)',-90);
+
+  // right setback (horizontal near front)
+  const rsy=fyR(8);
+  svg.appendChild(el('line',{x1:fx(cur.TW),y1:rsy,x2:fx(xR),y2:rsy,stroke:'var(--red)','stroke-width':1,'stroke-dasharray':'4 3'}));
+  tk(fx(cur.TW),rsy-4,fx(cur.TW),rsy+4);tk(fx(xR),rsy-4,fx(xR),rsy+4);
+  dimT((fx(cur.TW)+fx(xR))/2,rsy-5,ft(plot.offR));
+
+  // wing front-setback callouts
+  wings.forEach((s,i)=>{if(s.s>0){const cx=fx((cur.xE[i]+cur.xE[i+1])/2);
+    svg.appendChild(el('line',{x1:cx,y1:fyR(0),x2:cx,y2:fyR(s.s),stroke:'var(--red)','stroke-width':1,'stroke-dasharray':'4 3'}));
+    tk(cx-5,fyR(0),cx+5,fyR(0));tk(cx-5,fyR(s.s),cx+5,fyR(s.s));
+    dimT(cx,(fyR(0)+fyR(s.s))/2+4,ft(s.s));}});
+
+  // FRONT / STREET at lot front
+  svg.appendChild(el('line',{x1:fx(xL),y1:fyR(yF)+22,x2:fx(xR),y2:fyR(yF)+22,stroke:'var(--ink-soft)','stroke-width':.6}));
+  svg.appendChild(txt((fx(xL)+fx(xR))/2,fyR(yF)+18,'frontlabel',"FRONT / STREET"));
+}
+
+function deltaInfo(area,des){
+  const d=area-des;
+  if(des<=0||Math.abs(d)<=0.15*des)return {show:false};
+  return {show:true,t:(d>0?'+':'−')+fmt(Math.abs(Math.round(d*10)/10))+' sf',c:d>0?'var(--blue)':'var(--red)'};
+}
+
+/* ---------- pointer drag / resize ---------- */
+function feetFromEvent(e){
+  const pt=svg.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;
+  const sp=pt.matrixTransform(svg.getScreenCTM().inverse());
+  return {x:(sp.x-M_LEFT)/PX-cur.offX, r:cur.yMax-(sp.y-M_TOP)/PX};
+}
+svg.addEventListener('pointerdown',e=>{
+  const t=e.target;if(t.getAttribute('data-room')==null)return;
+  const idx=+t.getAttribute('data-room');const corner=t.getAttribute('data-corner');
+  const p=feetFromEvent(e);
+  drag={type:corner?'resize':'move',idx,corner,sx:p.x,sr:p.r,o:Object.assign({},rooms[idx])};
+  svg.setPointerCapture(e.pointerId);e.preventDefault();
+});
+svg.addEventListener('pointermove',e=>{
+  if(!drag)return;
+  const p=feetFromEvent(e),dx=p.x-drag.sx,dr=p.r-drag.sr,o=drag.o,r=rooms[drag.idx];
+  if(drag.type==='move'){
+    r.x=clamp(snap(o.x+dx),-cur.offX,(cur.pw-cur.offX)-o.w);
+    r.y=clamp(snap(o.y+dr),-cur.offF,(cur.pd-cur.offF)-o.h);
+  }else{
+    let x0=o.x,x1=o.x+o.w,y0=o.y,y1=o.y+o.h;
+    if(drag.corner.includes('l'))x0=clamp(snap(o.x+dx),-cur.offX,x1-1);
+    if(drag.corner.includes('r'))x1=clamp(snap(o.x+o.w+dx),x0+1,cur.pw-cur.offX);
+    if(drag.corner.includes('f'))y0=clamp(snap(o.y+dr),-cur.offF,y1-1);
+    if(drag.corner.includes('b'))y1=clamp(snap(o.y+o.h+dr),y0+1,cur.pd-cur.offF);
+    r.x=x0;r.w=x1-x0;r.y=y0;r.h=y1-y0;
+  }
+  renderPlan();
+});
+function endDrag(){if(!drag)return;drag=null;renderList();scheduleSave();}
+svg.addEventListener('pointerup',endDrag);
+svg.addEventListener('pointercancel',endDrag);
+
+/* ---------- room list ---------- */
+const list=document.getElementById('roomlist');
+function renderList(){
+  if(!rooms.length){list.innerHTML='<tr><td colspan="8" class="empty">No rooms yet — add one above to drop it into the plan.</td></tr>';
+    updateSummary();return;}
+  list.innerHTML=rooms.map((r,i)=>{
+    return `<tr>
+      <td class="l"><span class="sw" style="background:${r.color}"></span>
+        <input class="nm" data-ri="${i}" data-rk="name" value="${r.name.replace(/"/g,'&quot;')}"></td>
+      <td><input class="num" data-ri="${i}" data-rk="desired" type="number" min="1" step="1" value="${fmt(r.desired)}"></td>
+      <td><input class="num" data-ri="${i}" data-rk="w" type="number" min="1" step="0.5" value="${fmt(r.w)}"></td>
+      <td><input class="num" data-ri="${i}" data-rk="h" type="number" min="1" step="0.5" value="${fmt(r.h)}"></td>
+      <td><span data-rc="area" data-ri="${i}"></span> sf</td>
+      <td><span class="badge" data-rc="delta" data-ri="${i}"></span></td>
+      <td style="text-align:center"><input type="checkbox" data-ri="${i}" data-rk="open" ${r.open?'checked':''} title="No walls (deck/patio)"></td>
+      <td><button class="del" data-del="${i}" title="Delete">✕</button></td>
+    </tr>`;}).join('');
+  updateComputed();
+}
+function updateComputed(){
+  rooms.forEach((r,i)=>{
+    const a=list.querySelector(`[data-rc="area"][data-ri="${i}"]`);
+    const d=list.querySelector(`[data-rc="delta"][data-ri="${i}"]`);
+    if(a)a.textContent=fmt(Math.round(roomArea(r)*10)/10);
+    if(d){const di=deltaInfo(roomArea(r),r.desired);if(di.show){d.textContent=di.t;d.style.color=di.c;}else{d.textContent='';}}
+  });
+  updateSummary();
+}
+function updateSummary(){
+  const foot=wings.reduce((a,s)=>a+s.w*s.d,0);
+  let grossWalled=0,netWalled=0,openSum=0;
+  rooms.forEach(r=>{if(r.open)openSum+=r.w*r.h;else{grossWalled+=r.w*r.h;netWalled+=roomArea(r);}});
+  const rem=foot-grossWalled;
+  document.getElementById('summary').innerHTML=
+    `Footprint <b>${foot.toLocaleString()}</b> sf &nbsp;·&nbsp; `+
+    `Net interior <b>${fmt(Math.round(netWalled))}</b> sf &nbsp;·&nbsp; `+
+    `Unassigned <b style="color:${rem<0?'var(--red)':'var(--green)'}">${fmt(Math.round(rem))}</b> sf &nbsp;·&nbsp; `+
+    `Deck/open <b>${fmt(Math.round(openSum))}</b> sf`;
+}
+list.addEventListener('input',e=>{
+  const i=e.target.dataset.ri,k=e.target.dataset.rk;if(i==null)return;
+  if(k==='name'){rooms[i].name=e.target.value;}
+  else if(k==='open'){rooms[i].open=e.target.checked;}
+  else{const v=parseFloat(e.target.value);if(!isNaN(v))rooms[i][k]=Math.max(1,v);}
+  renderPlan();updateComputed();scheduleSave();
+});
+list.addEventListener('click',e=>{
+  const del=e.target.dataset.del;if(del==null)return;
+  rooms.splice(+del,1);renderList();renderPlan();scheduleSave();
+});
+
+/* ---------- add room ---------- */
+function addRoom(){
+  const nameI=document.getElementById('rn'),sfI=document.getElementById('rsf');
+  const des=Math.max(1,parseFloat(sfI.value)||100);
+  const name=(nameI.value.trim())||("Room "+(rooms.length+1));
+  let s=clamp(snap(Math.sqrt(des)),1,Math.min(cur.TW,cur.MD));
+  let w=s, h=clamp(snap(des/w),1,cur.MD);
+  const x=clamp(snap(1+(rooms.length%5)*1.5),0,Math.max(0,cur.TW-w));
+  const y=clamp(snap(1+(rooms.length%5)*1.5),0,Math.max(0,cur.MD-h));
+  rooms.push({name,desired:des,x,y,w,h,color:RC[rooms.length%RC.length],open:false});
+  nameI.value='';sfI.value='';nameI.focus();
+  renderList();renderPlan();scheduleSave();
+}
+document.getElementById('addbtn').onclick=addRoom;
+document.getElementById('rsf').addEventListener('keydown',e=>{if(e.key==='Enter')addRoom();});
+document.getElementById('rn').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('rsf').focus();});
+
+/* ---------- export / import / save ---------- */
+const STORE=(typeof window!=='undefined'&&window.storage)?window.storage:null;
+const KEY='savedLayout';
+const DEFAULTS={plot:JSON.parse(JSON.stringify(plot)),walls:JSON.parse(JSON.stringify(walls)),wings:JSON.parse(JSON.stringify(wings)),rooms:JSON.parse(JSON.stringify(rooms))};
+let ready=false,saveTimer=null;
+
+function ioStatus(msg,err){const s=document.getElementById('iostatus');s.textContent=msg;s.style.color=err?'var(--red)':'var(--green)';}
+
+function applyData(d){
+  if(d.plot&&typeof d.plot==='object')
+    plot={pw:Math.max(1,+d.plot.pw||100),pd:Math.max(1,+d.plot.pd||150),offF:Math.max(0,+d.plot.offF||0),offR:Math.max(0,+d.plot.offR||0)};
+  if(d.walls&&typeof d.walls==='object')
+    walls={ext:Math.max(0,+d.walls.ext||0),int:Math.max(0,+d.walls.int||0)};
+  if(Array.isArray(d.wings)&&d.wings.length>=1)
+    wings=d.wings.map(s=>({w:Math.max(0,+s.w||0),d:Math.max(0,+s.d||0),s:Math.max(0,+s.s||0)}));
+  if(Array.isArray(d.rooms))
+    rooms=d.rooms.map((r,i)=>({name:r.name!=null?String(r.name):"Room "+(i+1),
+      desired:Math.max(1,+r.desired||1),x:+r.x||0,y:+r.y||0,
+      w:Math.max(1,+r.w||1),h:Math.max(1,+r.h||1),color:r.color||RC[i%RC.length],open:!!r.open}));
+  buildPlotPanel();buildWallsPanel();buildFramePanel();renderPlan();renderList();
+}
+
+async function saveLayout(manual){
+  if(!STORE){if(manual)ioStatus("In-app save isn't available here — use Export instead",true);return;}
+  try{await STORE.set(KEY,JSON.stringify({plot,walls,wings,rooms}),false);ioStatus("Saved ✓");}
+  catch(e){ioStatus("Couldn't save",true);}
+}
+function scheduleSave(){
+  if(!ready||!STORE)return;
+  ioStatus("Saving…");clearTimeout(saveTimer);saveTimer=setTimeout(()=>saveLayout(false),700);
+}
+async function loadSaved(){
+  if(STORE){
+    try{const res=await STORE.get(KEY,false);
+      if(res&&res.value){applyData(JSON.parse(res.value));ioStatus("Loaded your saved layout");}
+    }catch(e){/* nothing saved yet */}
+  }
+  ready=true;
+}
+async function resetDefaults(){
+  plot=JSON.parse(JSON.stringify(DEFAULTS.plot));
+  walls=JSON.parse(JSON.stringify(DEFAULTS.walls));
+  wings=JSON.parse(JSON.stringify(DEFAULTS.wings));
+  rooms=JSON.parse(JSON.stringify(DEFAULTS.rooms));
+  buildPlotPanel();buildWallsPanel();buildFramePanel();renderPlan();renderList();
+  if(STORE){try{await STORE.delete(KEY,false);}catch(e){}}
+  ioStatus("Reset to defaults");
+}
+
+function exportJSON(){
+  const data={schema:"first-floor-plan",version:1,exported:new Date().toISOString(),
+    plot:{pw:plot.pw,pd:plot.pd,offF:plot.offF,offR:plot.offR},
+    walls:{ext:walls.ext,int:walls.int},
+    wings:wings.map(s=>({w:s.w,d:s.d,s:s.s})),
+    rooms:rooms.map(r=>({name:r.name,desired:r.desired,x:r.x,y:r.y,w:r.w,h:r.h,color:r.color,open:!!r.open}))};
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
+  const url=URL.createObjectURL(blob);const a=document.createElement('a');
+  a.href=url;a.download=`floor-plan-${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1500);ioStatus("Exported "+a.download);
+}
+function importJSON(file){
+  const reader=new FileReader();
+  reader.onload=()=>{
+    try{const d=JSON.parse(reader.result);
+      if(!Array.isArray(d.wings)&&!Array.isArray(d.rooms)&&!d.plot){ioStatus("No layout data found in that file",true);return;}
+      applyData(d);ioStatus("Imported layout");scheduleSave();
+    }catch(err){ioStatus("Could not read that file — not valid layout JSON",true);}
+  };
+  reader.onerror=()=>ioStatus("Could not read the file",true);
+  reader.readAsText(file);
+}
+
+document.getElementById('savebtn').onclick=()=>saveLayout(true);
+document.getElementById('resetbtn').onclick=resetDefaults;
+document.getElementById('exportbtn').onclick=exportJSON;
+document.getElementById('importbtn').onclick=()=>document.getElementById('importfile').click();
+document.getElementById('importfile').addEventListener('change',e=>{
+  const f=e.target.files[0];if(f)importJSON(f);e.target.value='';
+});
+
+renderPlan();renderList();loadSaved();
+</script>
+</body>
+</html>
