@@ -60,6 +60,11 @@
   .btn.ghost:hover{background:#eee;}
   .io{display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap;}
   .iostatus{font-family:var(--mono);font-size:11px;color:var(--green);}
+  .io select,.io input.vername{font-family:var(--mono);font-size:11px;border:1px solid var(--line);
+    background:#fff;padding:6px 8px;color:var(--ink);}
+  .io input.vername{width:150px;}
+  .io select#verlist{max-width:230px;}
+  .io .vsep{width:1px;align-self:stretch;background:var(--line);margin:0 2px;}
 
   table.rooms{width:100%;border-collapse:collapse;font-size:13px;}
   table.rooms th{font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;
@@ -118,6 +123,15 @@
     <button class="btn ghost" id="resetbtn">Reset to defaults</button>
     <input type="file" id="importfile" accept="application/json,.json" hidden>
     <span class="iostatus" id="iostatus"></span>
+  </div>
+
+  <div class="io" id="versionbar">
+    <input class="vername" id="vername" type="text" placeholder="Version name" maxlength="60">
+    <button class="btn" id="savever">Save version</button>
+    <span class="vsep"></span>
+    <select id="verlist" title="Saved versions"><option value="">— Saved versions —</option></select>
+    <button class="btn ghost" id="loadver">Load</button>
+    <button class="btn ghost" id="delver">Delete</button>
   </div>
 
   <!-- ROOMS -->
@@ -613,8 +627,22 @@ function makeLocalStore(){
     };
   }catch(e){return null;}
 }
+// Shared storage: a Cloudflare Worker (see worker.js) exposing GET/PUT/DELETE on /<key>.
+// Paste your deployed Worker URL here to share named versions across all browsers/users.
+// Leave "" to keep versions in this browser's localStorage only.
+const REMOTE_URL="";
+function makeRemoteStore(base){
+  const at=k=>base.replace(/\/+$/,'')+'/'+encodeURIComponent(k);
+  return {
+    async set(k,v){const r=await fetch(at(k),{method:'PUT',headers:{'Content-Type':'text/plain'},body:v});if(!r.ok)throw new Error('save failed');},
+    async get(k){const r=await fetch(at(k));if(!r.ok)return null;const value=await r.text();return value?{value}:null;},
+    async delete(k){const r=await fetch(at(k),{method:'DELETE'});if(!r.ok)throw new Error('delete failed');},
+  };
+}
 const STORE=(typeof window!=='undefined'&&window.storage)?window.storage
   :(typeof window!=='undefined'?makeLocalStore():null);
+// Working autosave stays local (your own draft); named versions use the shared store when REMOTE_URL is set.
+const SHARED=REMOTE_URL?makeRemoteStore(REMOTE_URL):STORE;
 const KEY='savedLayout';
 const DEFAULTS={plot:JSON.parse(JSON.stringify(plot)),walls:JSON.parse(JSON.stringify(walls)),wings:JSON.parse(JSON.stringify(wings)),rooms:JSON.parse(JSON.stringify(rooms))};
 let ready=false,saveTimer=null;
@@ -694,7 +722,58 @@ document.getElementById('importfile').addEventListener('change',e=>{
   const f=e.target.files[0];if(f)importJSON(f);e.target.value='';
 });
 
-renderPlan();renderList();loadSaved();
+/* ---------- named versions (stored alongside the autosave slot) ---------- */
+const VKEY='savedVersions';
+async function getVersions(){
+  if(!SHARED)return {};
+  try{const res=await SHARED.get(VKEY,false);return res&&res.value?JSON.parse(res.value):{};}
+  catch(e){return {};}
+}
+async function putVersions(obj){
+  if(!SHARED)return false;
+  try{await SHARED.set(VKEY,JSON.stringify(obj),false);return true;}catch(e){return false;}
+}
+function snapshot(){return {plot,walls,wings,rooms,savedAt:new Date().toISOString()};}
+const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+async function refreshVersions(sel){
+  const el=document.getElementById('verlist');const obj=await getVersions();
+  const names=Object.keys(obj).sort((a,b)=>(obj[b].savedAt||'').localeCompare(obj[a].savedAt||''));
+  el.innerHTML=`<option value="">— Saved versions (${names.length}) —</option>`+
+    names.map(n=>`<option value="${esc(n)}">${esc(n)}${obj[n].savedAt?' · '+obj[n].savedAt.slice(0,10):''}</option>`).join('');
+  if(sel!=null)el.value=sel;
+}
+async function saveVersion(){
+  if(!SHARED){ioStatus("Saving versions isn't available here — use Export instead",true);return;}
+  const inp=document.getElementById('vername'),name=inp.value.trim();
+  if(!name){ioStatus("Type a version name first",true);inp.focus();return;}
+  const obj=await getVersions();
+  if(obj[name]&&!confirm(`Overwrite the saved version “${name}”?`))return;
+  obj[name]=snapshot();
+  ioStatus("Saving…");
+  if(!(await putVersions(obj))){ioStatus("Couldn't reach the shared store — not saved",true);return;}
+  inp.value='';await refreshVersions(name);ioStatus(`Saved version “${name}”`);
+}
+async function loadVersion(){
+  const el=document.getElementById('verlist'),name=el.value;
+  if(!name){ioStatus("Pick a version to load",true);return;}
+  const obj=await getVersions();
+  if(!obj[name]){ioStatus("That version no longer exists",true);await refreshVersions('');return;}
+  applyData(obj[name]);scheduleSave();ioStatus(`Loaded “${name}”`);
+}
+async function deleteVersion(){
+  const el=document.getElementById('verlist'),name=el.value;
+  if(!name){ioStatus("Pick a version to delete",true);return;}
+  if(!confirm(`Delete the saved version “${name}”?`))return;
+  const obj=await getVersions();delete obj[name];
+  if(!(await putVersions(obj))){ioStatus("Couldn't reach the shared store",true);return;}
+  await refreshVersions('');ioStatus(`Deleted “${name}”`);
+}
+document.getElementById('savever').onclick=saveVersion;
+document.getElementById('loadver').onclick=loadVersion;
+document.getElementById('delver').onclick=deleteVersion;
+document.getElementById('vername').addEventListener('keydown',e=>{if(e.key==='Enter')saveVersion();});
+
+renderPlan();renderList();loadSaved();refreshVersions();
 </script>
 </body>
 </html>
