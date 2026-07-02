@@ -630,7 +630,7 @@ function makeLocalStore(){
 // Shared storage: a Cloudflare Worker (see worker.js) exposing GET/PUT/DELETE on /<key>.
 // Paste your deployed Worker URL here to share named versions across all browsers/users.
 // Leave "" to keep versions in this browser's localStorage only.
-const REMOTE_URL="";
+const REMOTE_URL="/kv";
 function makeRemoteStore(base){
   const at=k=>base.replace(/\/+$/,'')+'/'+encodeURIComponent(k);
   return {
