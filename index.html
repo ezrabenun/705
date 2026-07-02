@@ -7,7 +7,7 @@
 <style>
   :root{
     --paper:#FCFBF8; --ink:#20303F; --ink-soft:#5A6B7A; --red:#B24A2A;
-    --blue:#2C5C8A; --green:#2F7D54; --grid:#ECEFF2; --line:#D8DCE0; --wall:#5B6675;
+    --blue:#2C5C8A; --green:#2F7D54; --grid:#ECEFF2; --gridpink:#CE8A7E; --line:#D8DCE0; --wall:#5B6675;
     --sansr:"Helvetica Neue",Arial,sans-serif;
     --mono:ui-monospace,"SF Mono","Roboto Mono",Menlo,Consolas,monospace;
   }
@@ -192,29 +192,31 @@ let wings=[
 ];
 // rooms: x = ft from left, y = ft from FRONT(bottom), w wide, h deep
 let rooms=[
-  {name:"Kitchen", desired:400, x:0, y:30, w:21, h:20, color:"#2C5C8A"},
-  {name:"Dining", desired:300, x:21, y:23, w:21, h:15, color:"#7A4E8C"},
-  {name:"Living", desired:320, x:53.5, y:34, w:21.5, h:16, color:"#2F7D54"},
-  {name:"Dinette", desired:156, x:42, y:23, w:11.5, h:16.5, color:"#B2792A"},
-  {name:"Den", desired:225, x:58.5, y:18.5, w:16.5, h:15.5, color:"#A23A5B"},
-  {name:"Full Bath", desired:48, x:53.5, y:7.5, w:8, h:6.5, color:"#3A7E8C"},
-  {name:"Half Bath", desired:27, x:53.5, y:14, w:8, h:4.5, color:"#8A5A2C"},
-  {name:"Study/Guest", desired:156, x:61.5, y:6.5, w:13.5, h:12, color:"#4A5A8A"},
-  {name:"Entrance & Stairs", desired:288, x:21, y:0, w:17, h:18.5, color:"#2C5C8A"},
-  {name:"Shed", desired:240, x:0, y:0, w:21, h:12, color:"#7A4E8C"},
-  {name:"Butler Kitchen", desired:112, x:0, y:23, w:16, h:7, color:"#8A5A2C"},
-  {name:"Mudroom", desired:71.5, x:5, y:16.5, w:11, h:6.5, color:"#B2792A"},
-  {name:"Boiler", desired:34, x:0, y:12, w:7.5, h:4.5, color:"#4A5A8A"},
-  {name:"Bed & Laundry", desired:156, x:38, y:8.5, w:15.5, h:10, color:"#3A7E8C"},
-  {name:"Mud Closet", desired:21, x:7.5, y:12, w:8.5, h:4.5, color:"#8A5A2C"},
-  {name:"Outdoor Kitchen & Dining", desired:650, x:21, y:38, w:32.5, h:21.5, color:"#9C7B4D", open:true},
+  {name:"Kitchen", desired:400, x:33.5, y:22, w:20, h:16, color:"#2C5C8A"},
+  {name:"Dining", desired:300, x:21, y:0, w:21, h:17.5, color:"#7A4E8C"},
+  {name:"Living", desired:320, x:61.5, y:6.5, w:13.5, h:23, color:"#2F7D54"},
+  {name:"Dinette", desired:156, x:21, y:22, w:12.5, h:16, color:"#B2792A"},
+  {name:"Den", desired:225, x:0, y:34, w:21, h:16, color:"#A23A5B"},
+  {name:"Full Bath", desired:48, x:12.5, y:10, w:5.5, h:5.5, color:"#3A7E8C"},
+  {name:"1/2 Bath", desired:27, x:57.5, y:17.5, w:4, h:7.5, color:"#8A5A2C"},
+  {name:"Library", desired:156, x:61.5, y:40.5, w:13.5, h:9.5, color:"#4A5A8A"},
+  {name:"Entrance & Stairs", desired:288, x:42, y:7.5, w:19.5, h:10, color:"#2C5C8A"},
+  {name:"Shed", desired:240, x:0, y:0, w:12.5, h:19.5, color:"#7A4E8C"},
+  {name:"Butler Kitchen", desired:112, x:53.5, y:34, w:8, h:16, color:"#8A5A2C"},
+  {name:"Mudroom", desired:71.5, x:5, y:22, w:12, h:5, color:"#B2792A"},
+  {name:"Boiler", desired:34, x:0, y:27, w:5, h:7, color:"#4A5A8A"},
+  {name:"HK Bedroom", desired:156, x:12.5, y:0, w:8.5, h:10, color:"#3A7E8C"},
+  {name:"Closet", desired:21, x:0, y:19.5, w:9, h:2.5, color:"#8A5A2C"},
+  {name:"Outdoor Kitchen & Dining", desired:650, x:21, y:38, w:32.5, h:15, color:"#9C7B4D", open:true},
   {name:"Pool Area", desired:2254, x:21, y:59.5, w:46, h:50, color:"#2C5C8A", open:true},
   {name:"Setback 10ft", desired:1000, x:-15, y:109.75, w:100, h:10, color:"#7A4E8C", open:true},
   {name:"Setside 10ft", desired:1500, x:75, y:-30.25, w:10, h:150, color:"#2F7D54", open:true},
   {name:"Cabana", desired:360, x:60, y:65.5, w:15, h:24, color:"#B2792A", open:true},
-  {name:"30 setback", desired:30, x:73.5, y:89.5, w:1, h:30, color:"#A23A5B", open:true},
-  {name:"Volyball", desired:2535, x:-15, y:54.75, w:39, h:65, color:"#3A7E8C", open:true},
-  {name:"closet", desired:18, x:38, y:0, w:3.5, h:8.5, color:"#8A5A2C"},
+  {name:"30 setback", desired:30, x:75, y:89.5, w:1, h:30, color:"#A23A5B", open:true},
+  {name:"Grass / Volleyball", desired:2535, x:-15, y:50, w:36, h:60, color:"#3A7E8C", open:true},
+  {name:"Laundry", desired:100, x:5, y:27, w:12, h:7, color:"#4A5A8A"},
+  {name:"Playroom", desired:100, x:61.5, y:29.5, w:13.5, h:11, color:"#4A5A8A"},
+  {name:"Closet", desired:10, x:12.5, y:15.5, w:4.5, h:6.5, color:"#2C5C8A"},
 ];
 let plot={pw:100,pd:150,offF:30.25,offR:10};   // lot W×D; frame front setback & right-side setback
 let walls={ext:7,int:4.75};                  // wall thickness in INCHES
@@ -312,10 +314,11 @@ function renderPlan(){
   // lot bounds in building coords
   const xL=-offX, xR=plot.pw-offX, yF=-offF, yB=plot.pd-offF;
 
-  // lot fill + 5ft grid
+  // lot fill + 1'-0" grid (thin faded pink, gently emphasised every 5' / 25')
   svg.appendChild(el('rect',{x:fx(xL),y:fyR(yB),width:plot.pw*PX,height:plot.pd*PX,fill:'#EFF2E8'}));
-  for(let f=0;f<=plot.pw;f+=5)svg.appendChild(el('line',{x1:fx(xL+f),y1:fyR(yF),x2:fx(xL+f),y2:fyR(yB),stroke:'var(--grid)','stroke-width':f%25===0?1:.5}));
-  for(let f=0;f<=plot.pd;f+=5)svg.appendChild(el('line',{x1:fx(xL),y1:fyR(yF+f),x2:fx(xR),y2:fyR(yF+f),stroke:'var(--grid)','stroke-width':f%25===0?1:.5}));
+  const gLine=f=>({stroke:'var(--gridpink)','stroke-width':f%25===0?0.7:(f%5===0?0.5:0.3),'stroke-opacity':f%25===0?0.55:(f%5===0?0.4:0.22)});
+  for(let f=0;f<=plot.pw;f+=1)svg.appendChild(el('line',Object.assign({x1:fx(xL+f),y1:fyR(yF),x2:fx(xL+f),y2:fyR(yB)},gLine(f))));
+  for(let f=0;f<=plot.pd;f+=1)svg.appendChild(el('line',Object.assign({x1:fx(xL),y1:fyR(yF+f),x2:fx(xR),y2:fyR(yF+f)},gLine(f))));
 
   // wing floor tints + outline points + letters
   wings.forEach((s,i)=>svg.appendChild(el('rect',{x:fx(xE[i]),y:fyR(s.s+s.d),width:s.w*PX,height:s.d*PX,
@@ -355,13 +358,17 @@ function renderPlan(){
     const nd=netDims(r);
     const a=r.open?r.w*r.h:nd.nw*nd.nh;
     const di=deltaInfo(a,r.desired);
-    const dimStr=r.open?(ft(r.w)+" × "+ft(r.h)):(ftIn(nd.nw)+" × "+ftIn(nd.nh));
+    const dimW=r.open?ft(r.w):ftIn(nd.nw), dimD=r.open?ft(r.h):ftIn(nd.nh);
+    const oneLine=dimW+"×"+dimD;
+    const wide=oneLine.length*6.6+4<=pxW;                                                 // room fits the whole dim on one line
     const lineH=13;
+    const maxLines=Math.max(1,Math.floor((pxH-2)/lineH));
     const cand=[{c:'rmname',t:r.name}];
-    if(pxW>=48)cand.push({c:'rmdim',t:dimStr});
+    if(wide)cand.push({c:'rmdim',t:oneLine});
+    else{cand.push({c:'rmdim',t:dimW+"×"});cand.push({c:'rmdim',t:dimD});}                // too narrow — always wrap after the ×
     if(di.show)cand.push({c:'rmdelta',t:di.t,fill:di.c});
-    if(pxW>=48)cand.push({c:'rmsf',t:fmt(Math.round(a*10)/10)+" sf"});
-    const nShow=Math.max(1,Math.min(cand.length,Math.floor((pxH-2)/lineH)));
+    if(wide)cand.push({c:'rmsf',t:fmt(Math.round(a*10)/10)+" sf"});                       // sf is secondary — only when dims fit on one line
+    const nShow=Math.max(1,Math.min(cand.length,maxLines));
     const show=cand.slice(0,nShow);
     show.forEach((ln,k)=>{
       const t=txt(cx, cy+(k-(show.length-1)/2)*lineH+4, ln.c, ln.t);
