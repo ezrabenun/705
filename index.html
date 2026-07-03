@@ -24,7 +24,8 @@
   svg{width:100%;height:auto;display:block;touch-action:none;-webkit-user-select:none;user-select:none;
     transform-origin:0 0;}
   #plan *{pointer-events:none;}
-  #plan rect[data-room]{pointer-events:all;cursor:move;}
+  #plan rect[data-room]{pointer-events:all;cursor:pointer;}
+  #plan rect[data-room].selected{cursor:move;}
   #plan rect[data-corner]{pointer-events:all;cursor:nwse-resize;}
 
   .tabs{display:flex;gap:0;margin-top:12px;border-bottom:1.5px solid var(--ink);}
@@ -183,7 +184,7 @@
   </div>
 
   <div class="titleblock">
-    <span>GRID = 1'-0"  ·  DRAG ROOM TO MOVE · DRAG CORNERS TO RESIZE</span>
+    <span>GRID = 1'-0"  ·  TAP ROOM TO SELECT · DRAG SELECTED TO MOVE · CORNERS RESIZE</span>
     <span>BOTTOM = FRONT / STREET · TOP = REAR</span>
     <span>SHEET A-1 · DRAFT</span>
   </div>
@@ -236,6 +237,7 @@ let plot={pw:100,pd:150,offF:30.25,offR:10};   // lot W×D; frame front setback 
 let walls={ext:7,int:4.75};                  // wall thickness in INCHES
 let cur={TW:0,MD:0};
 let drag=null;
+let selected=null;    // index of the currently selected room (must be selected before it can be moved)
 
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const snap=v=>Math.round(v*2)/2;
@@ -348,7 +350,9 @@ function renderPlan(){
   // rooms — pass 1: floor fills (+ open-space outline)
   rooms.forEach((r,i)=>{
     const x=fx(r.x), y=fyR(r.y+r.h), pxW=r.w*PX, pxH=r.h*PX;
-    svg.appendChild(el('rect',{x,y,width:pxW,height:pxH,fill:r.color,'fill-opacity':.18,'data-room':i}));
+    const rect=el('rect',{x,y,width:pxW,height:pxH,fill:r.color,'fill-opacity':i===selected?.34:.18,'data-room':i});
+    if(i===selected)rect.setAttribute('class','selected');
+    svg.appendChild(rect);
     if(r.open)svg.appendChild(el('rect',{x,y,width:pxW,height:pxH,fill:'none',stroke:r.color,'stroke-width':2,'stroke-dasharray':'6 4'}));
   });
   // rooms — pass 2: interior partition bands (exterior sides handled by the shell)
@@ -389,10 +393,15 @@ function renderPlan(){
       if(ln.fill)t.setAttribute('fill',ln.fill);
       svg.appendChild(t);
     });
-    [['fl',r.x,r.y],['fr',r.x+r.w,r.y],['bl',r.x,r.y+r.h],['br',r.x+r.w,r.y+r.h]].forEach(([c,hx,hr])=>{
-      svg.appendChild(el('rect',{x:fx(hx)-4,y:fyR(hr)-4,width:8,height:8,fill:'#fff',stroke:col,'stroke-width':1.5,
-        'data-room':i,'data-corner':c}));
-    });
+    if(i===selected){
+      // selection outline + resize handles (only the selected room can be moved/resized)
+      svg.appendChild(el('rect',{x:fx(r.x),y:fyR(r.y+r.h),width:pxW,height:pxH,
+        fill:'none',stroke:col,'stroke-width':2,'stroke-dasharray':'5 3'}));
+      [['fl',r.x,r.y],['fr',r.x+r.w,r.y],['bl',r.x,r.y+r.h],['br',r.x+r.w,r.y+r.h]].forEach(([c,hx,hr])=>{
+        svg.appendChild(el('rect',{x:fx(hx)-4,y:fyR(hr)-4,width:8,height:8,fill:'#fff',stroke:col,'stroke-width':1.5,
+          'data-room':i,'data-corner':c}));
+      });
+    }
   });
 
   // ===== lot lines, dimensions & labels (on top) =====
@@ -487,10 +496,21 @@ svg.addEventListener('pointerdown',e=>{
   gDownT=Date.now();gDownX=e.clientX;gDownY=e.clientY;gMoved=false;
   const t=e.target,ri=t.getAttribute('data-room');
   if(ri!=null){
-    const idx=+ri,corner=t.getAttribute('data-corner');const p=feetFromEvent(e);
-    drag={type:corner?'resize':'move',idx,corner,sx:p.x,sr:p.r,o:Object.assign({},rooms[idx])};
-  }else if(view.scale>1){
-    panP={id:e.pointerId,sx:e.clientX,sy:e.clientY,otx:view.tx,oty:view.ty};
+    const idx=+ri,corner=t.getAttribute('data-corner');
+    if(corner){                                     // resize handle (only rendered on the selected room)
+      const p=feetFromEvent(e);
+      drag={type:'resize',idx,corner,sx:p.x,sr:p.r,o:Object.assign({},rooms[idx])};
+    }else if(idx===selected){                       // already selected → press-and-drag to move
+      const p=feetFromEvent(e);
+      drag={type:'move',idx,corner:null,sx:p.x,sr:p.r,o:Object.assign({},rooms[idx])};
+    }else{                                           // first touch just selects — prevents accidental moves
+      selected=idx;renderPlan();
+    }
+  }else{
+    if(selected!=null){selected=null;renderPlan();}  // tapping empty space clears the selection
+    if(view.scale>1){
+      panP={id:e.pointerId,sx:e.clientX,sy:e.clientY,otx:view.tx,oty:view.ty};
+    }
   }
   try{svg.setPointerCapture(e.pointerId);}catch(_){}
   e.preventDefault();
@@ -544,6 +564,7 @@ function endPointer(e){
 }
 svg.addEventListener('pointerup',endPointer);
 svg.addEventListener('pointercancel',endPointer);
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&selected!=null){selected=null;renderPlan();}});
 
 /* ---------- room list ---------- */
 const list=document.getElementById('roomlist');
@@ -593,7 +614,7 @@ list.addEventListener('input',e=>{
 });
 list.addEventListener('click',e=>{
   const del=e.target.dataset.del;if(del==null)return;
-  rooms.splice(+del,1);renderList();renderPlan();scheduleSave();
+  rooms.splice(+del,1);selected=null;renderList();renderPlan();scheduleSave();
 });
 
 /* ---------- add room ---------- */
@@ -660,6 +681,7 @@ function applyData(d){
     rooms=d.rooms.map((r,i)=>({name:r.name!=null?String(r.name):"Room "+(i+1),
       desired:Math.max(1,+r.desired||1),x:+r.x||0,y:+r.y||0,
       w:Math.max(1,+r.w||1),h:Math.max(1,+r.h||1),color:r.color||RC[i%RC.length],open:!!r.open}));
+  selected=null;
   buildPlotPanel();buildWallsPanel();buildFramePanel();renderPlan();renderList();
 }
 
@@ -685,6 +707,7 @@ async function resetDefaults(){
   walls=JSON.parse(JSON.stringify(DEFAULTS.walls));
   wings=JSON.parse(JSON.stringify(DEFAULTS.wings));
   rooms=JSON.parse(JSON.stringify(DEFAULTS.rooms));
+  selected=null;
   buildPlotPanel();buildWallsPanel();buildFramePanel();renderPlan();renderList();
   if(STORE){try{await STORE.delete(KEY,false);}catch(e){}}
   ioStatus("Reset to defaults");
