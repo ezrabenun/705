@@ -3,11 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- This is a light "blueprint paper" design; opt out of the browser's forced/auto dark mode
+     so exterior walls and other dark strokes stay visible. -->
+<meta name="color-scheme" content="light">
 <title>First Floor — Plan</title>
 <style>
   :root{
+    color-scheme: light;
     --paper:#FCFBF8; --ink:#20303F; --ink-soft:#5A6B7A; --red:#B24A2A;
-    --blue:#2C5C8A; --green:#2F7D54; --grid:#ECEFF2; --gridpink:#CE8A7E; --line:#D8DCE0; --wall:#5B6675;
+    --blue:#2C5C8A; --green:#2F7D54; --grid:#ECEFF2; --gridpink:#CE8A7E; --line:#D8DCE0;
+    --wall:#7E9BC6;            /* interior partitions — faded blue (exterior shell uses --ink) */
     --sansr:"Helvetica Neue",Arial,sans-serif;
     --mono:ui-monospace,"SF Mono","Roboto Mono",Menlo,Consolas,monospace;
   }
@@ -27,6 +32,11 @@
   #plan rect[data-room]{pointer-events:all;cursor:pointer;}
   #plan rect[data-room].selected{cursor:move;}
   #plan rect[data-corner]{pointer-events:all;cursor:nwse-resize;}
+  #plan [data-open]{pointer-events:all;cursor:pointer;}
+  #plan [data-open].osel{cursor:move;}
+  #plan [data-ohandle]{pointer-events:all;cursor:crosshair;}
+  svg#plan.arming{cursor:crosshair;}
+  .btn.tool.armed{background:var(--red);border-color:var(--red);color:#fff;}
 
   .tabs{display:flex;gap:0;margin-top:12px;border-bottom:1.5px solid var(--ink);}
   .tabs button{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;
@@ -54,6 +64,8 @@
     background:#fff;padding:6px 8px;color:var(--ink);}
   .addrow input.name{width:180px;}
   .addrow input.sf{width:90px;text-align:right;}
+  .addrow .hint,.iohint{font-family:var(--mono);font-size:10px;color:var(--ink-soft);letter-spacing:.02em;}
+  table.rooms select.osel{font-family:var(--mono);font-size:11px;border:1px solid var(--line);background:#fff;padding:3px 4px;color:var(--ink);}
   .btn{font-family:var(--mono);font-size:11px;letter-spacing:.06em;background:var(--ink);
     border:1px solid var(--ink);color:var(--paper);padding:7px 12px;cursor:pointer;}
   .btn:hover{background:#2c4255;}
@@ -61,11 +73,11 @@
   .btn.ghost:hover{background:#eee;}
   .io{display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap;}
   .iostatus{font-family:var(--mono);font-size:11px;color:var(--green);}
-  .io select,.io input.vername{font-family:var(--mono);font-size:11px;border:1px solid var(--line);
-    background:#fff;padding:6px 8px;color:var(--ink);}
+  .io input.vername,.io select.verlist{font-family:var(--mono);font-size:11px;
+    border:1px solid var(--line);background:#fff;padding:6px 8px;color:var(--ink);}
   .io input.vername{width:150px;}
-  .io select#verlist{max-width:230px;}
-  .io .vsep{width:1px;align-self:stretch;background:var(--line);margin:0 2px;}
+  .io select.verlist{max-width:210px;cursor:pointer;}
+  .btn.ghost.active{background:var(--ink);color:var(--paper);border-color:var(--ink);}
 
   table.rooms{width:100%;border-collapse:collapse;font-size:13px;}
   table.rooms th{font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;
@@ -112,27 +124,29 @@
 
   <div class="tabs" role="tablist">
     <button id="tab-rooms" role="tab" aria-selected="true">Rooms</button>
+    <button id="tab-openings" role="tab" aria-selected="false">Doors / Windows</button>
     <button id="tab-frame" role="tab" aria-selected="false">Frame</button>
     <button id="tab-plot" role="tab" aria-selected="false">Plot</button>
     <button id="tab-walls" role="tab" aria-selected="false">Walls</button>
   </div>
 
-  <div class="io">
-    <button class="btn" id="savebtn">Save</button>
-    <button class="btn ghost" id="exportbtn">⬇ Export</button>
-    <button class="btn ghost" id="importbtn">⬆ Import</button>
-    <button class="btn ghost" id="resetbtn">Reset to defaults</button>
-    <input type="file" id="importfile" accept="application/json,.json" hidden>
+  <div class="io" id="versionbar">
+    <select id="verlist" class="verlist" title="Load a saved version">
+      <option value="">— Saved versions —</option>
+    </select>
+    <input class="vername" id="vername" type="text" placeholder="Version name"
+      maxlength="60" autocomplete="off">
+    <button class="btn" id="savever">Save</button>
+    <button class="btn ghost" id="starbtn" title="Set as the default layout for everyone">☆ Default</button>
+    <button class="btn ghost" id="delver">Delete</button>
     <span class="iostatus" id="iostatus"></span>
   </div>
 
-  <div class="io" id="versionbar">
-    <input class="vername" id="vername" type="text" placeholder="Version name" maxlength="60">
-    <button class="btn" id="savever">Save version</button>
-    <span class="vsep"></span>
-    <select id="verlist" title="Saved versions"><option value="">— Saved versions —</option></select>
-    <button class="btn ghost" id="loadver">Load</button>
-    <button class="btn ghost" id="delver">Delete</button>
+  <div class="io">
+    <button class="btn ghost" id="exportbtn">⬇ Export</button>
+    <button class="btn ghost" id="importbtn">⬆ Import</button>
+    <button class="btn ghost" id="resetbtn">Reset to default</button>
+    <input type="file" id="importfile" accept="application/json,.json" hidden>
   </div>
 
   <!-- ROOMS -->
@@ -152,6 +166,22 @@
       <tbody id="roomlist"></tbody>
     </table>
     <div class="summary" id="summary"></div>
+  </div>
+
+  <!-- DOORS / WINDOWS -->
+  <div class="pane" id="pane-openings">
+    <div class="addrow">
+      <button class="btn ghost tool" id="tool-door">＋ Door</button>
+      <button class="btn ghost tool" id="tool-doorway">＋ Doorway</button>
+      <button class="btn ghost tool" id="tool-window">＋ Window</button>
+      <span class="hint" id="openhint">Pick a tool, then click a wall to place it. Tap a placed item to select it, then drag to move (snaps to walls) or drag an end dot to resize.</span>
+    </div>
+    <table class="rooms" id="opentable">
+      <thead><tr>
+        <th class="l">Type</th><th>Dir</th><th>X</th><th>Y</th><th>Length</th><th>Flip</th><th></th>
+      </tr></thead>
+      <tbody id="openlist"></tbody>
+    </table>
   </div>
 
   <!-- FRAME -->
@@ -207,21 +237,21 @@ let wings=[
 ];
 // rooms: x = ft from left, y = ft from FRONT(bottom), w wide, h deep
 let rooms=[
-  {name:"Kitchen", desired:400, x:33.5, y:22, w:20, h:16, color:"#2C5C8A"},
-  {name:"Dining", desired:300, x:21, y:0, w:21, h:17.5, color:"#7A4E8C"},
-  {name:"Living", desired:320, x:61.5, y:6.5, w:13.5, h:23, color:"#2F7D54"},
-  {name:"Dinette", desired:156, x:21, y:22, w:12.5, h:16, color:"#B2792A"},
+  {name:"Kitchen", desired:400, x:53.5, y:34, w:21.5, h:16, color:"#2C5C8A"},
+  {name:"Dining", desired:300, x:21, y:22, w:21, h:16, color:"#7A4E8C", open:true},
+  {name:"Living", desired:320, x:21, y:0, w:21, h:17.5, color:"#2F7D54", open:true},
+  {name:"Dinette", desired:156, x:53.5, y:22, w:13, h:12, color:"#B2792A"},
   {name:"Den", desired:225, x:0, y:34, w:21, h:16, color:"#A23A5B"},
-  {name:"Full Bath", desired:48, x:12.5, y:10, w:5.5, h:5.5, color:"#3A7E8C"},
-  {name:"1/2 Bath", desired:27, x:57.5, y:17.5, w:4, h:7.5, color:"#8A5A2C"},
-  {name:"Library", desired:156, x:61.5, y:40.5, w:13.5, h:9.5, color:"#4A5A8A"},
-  {name:"Entrance & Stairs", desired:288, x:42, y:7.5, w:19.5, h:10, color:"#2C5C8A"},
+  {name:"Full Bath", desired:48, x:12.5, y:12.5, w:5.5, h:7, color:"#3A7E8C"},
+  {name:"1/2 Bath", desired:27, x:66.5, y:17.5, w:8.5, h:4.5, color:"#8A5A2C"},
+  {name:"Library", desired:156, x:53.5, y:7.5, w:9, h:10, color:"#4A5A8A"},
+  {name:"Entrance", desired:288, x:42, y:8.5, w:11.5, h:9, color:"#2C5C8A", open:true},
   {name:"Shed", desired:240, x:0, y:0, w:12.5, h:19.5, color:"#7A4E8C"},
-  {name:"Butler Kitchen", desired:112, x:53.5, y:34, w:8, h:16, color:"#8A5A2C"},
-  {name:"Mudroom", desired:71.5, x:5, y:22, w:12, h:5, color:"#B2792A"},
-  {name:"Boiler", desired:34, x:0, y:27, w:5, h:7, color:"#4A5A8A"},
-  {name:"HK Bedroom", desired:156, x:12.5, y:0, w:8.5, h:10, color:"#3A7E8C"},
-  {name:"Closet", desired:21, x:0, y:19.5, w:9, h:2.5, color:"#8A5A2C"},
+  {name:"Butler Kitchen", desired:112, x:66.5, y:22, w:8.5, h:12, color:"#8A5A2C"},
+  {name:"Mudroom", desired:71.5, x:5, y:19.5, w:11.5, h:6, color:"#B2792A"},
+  {name:"Boiler", desired:34, x:0, y:28, w:5, h:6, color:"#4A5A8A"},
+  {name:"HK Bedroom", desired:156, x:12.5, y:0, w:8.5, h:12.5, color:"#3A7E8C"},
+  {name:"Closet", desired:21, x:0, y:25.5, w:16.5, h:2.5, color:"#8A5A2C"},
   {name:"Outdoor Kitchen & Dining", desired:650, x:21, y:38, w:32.5, h:15, color:"#9C7B4D", open:true},
   {name:"Pool Area", desired:2254, x:21, y:59.5, w:46, h:50, color:"#2C5C8A", open:true},
   {name:"Setback 10ft", desired:1000, x:-15, y:109.75, w:100, h:10, color:"#7A4E8C", open:true},
@@ -229,15 +259,21 @@ let rooms=[
   {name:"Cabana", desired:360, x:60, y:65.5, w:15, h:24, color:"#B2792A", open:true},
   {name:"30 setback", desired:30, x:75, y:89.5, w:1, h:30, color:"#A23A5B", open:true},
   {name:"Grass / Volleyball", desired:2535, x:-15, y:50, w:36, h:60, color:"#3A7E8C", open:true},
-  {name:"Laundry", desired:100, x:5, y:27, w:12, h:7, color:"#4A5A8A"},
-  {name:"Playroom", desired:100, x:61.5, y:29.5, w:13.5, h:11, color:"#4A5A8A"},
-  {name:"Closet", desired:10, x:12.5, y:15.5, w:4.5, h:6.5, color:"#2C5C8A"},
+  {name:"Laundry", desired:100, x:5, y:28, w:11.5, h:6, color:"#4A5A8A"},
+  {name:"Playroom", desired:100, x:62.5, y:6.5, w:12.5, h:11, color:"#4A5A8A"},
+  {name:"Closet", desired:10, x:-15, y:25, w:5.5, h:2, color:"#2C5C8A"},
+  {name:"Stairs", desired:288, x:48.5, y:22, w:5, h:12, color:"#7A4E8C", open:true},
 ];
 let plot={pw:100,pd:150,offF:30.25,offR:10};   // lot W×D; frame front setback & right-side setback
 let walls={ext:7,int:4.75};                  // wall thickness in INCHES
+// openings sit on top of the walls. type: 'door' (leaf + swing arc) | 'doorway' (plain gap) | 'window' (glazing).
+// x,y = one end (ft); orient 'h' spans +x, 'v' spans +y; len in ft; flip mirrors a door's swing side.
+let openings=[];
 let cur={TW:0,MD:0};
 let drag=null;
-let selected=null;    // index of the currently selected room (must be selected before it can be moved)
+let selected=null;         // index of the currently selected room (must be selected before it can be moved)
+let selectedOpening=null;  // index of the currently selected door/window
+let placeTool=null;        // 'door' | 'doorway' | 'window' while a placement tool is armed
 
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const snap=v=>Math.round(v*2)/2;
@@ -253,13 +289,14 @@ function netDims(r){const w=roomWalls(r);const hw=s=>(s?walls.ext:walls.int)/24;
 function roomArea(r){if(r.open)return r.w*r.h;const n=netDims(r);return n.nw*n.nh;}
 
 /* ---------- tabs ---------- */
+const TABS=['rooms','openings','frame','plot','walls'];
 function setTab(which){
-  ['rooms','frame','plot','walls'].forEach(t=>{
+  TABS.forEach(t=>{
     document.getElementById('tab-'+t).setAttribute('aria-selected',t===which);
     document.getElementById('pane-'+t).classList.toggle('on',t===which);
   });
 }
-['rooms','frame','plot','walls'].forEach(t=>document.getElementById('tab-'+t).onclick=()=>setTab(t));
+TABS.forEach(t=>document.getElementById('tab-'+t).onclick=()=>setTab(t));
 
 /* ---------- frame editor ---------- */
 const panel=document.getElementById('panel');
@@ -404,6 +441,9 @@ function renderPlan(){
     }
   });
 
+  // doors / windows (drawn over the walls)
+  drawOpenings();
+
   // ===== lot lines, dimensions & labels (on top) =====
   const pcol='#5E6B3A';
   const dimT=(x,y,t,col,rot)=>{const e=txt(x,y,'dim',t);e.setAttribute('fill',col||'var(--red)');if(rot)e.setAttribute('transform',`rotate(${rot} ${x} ${y})`);svg.appendChild(e);};
@@ -458,6 +498,89 @@ function deltaInfo(area,des){
   return {show:true,t:(d>0?'+':'−')+fmt(Math.abs(Math.round(d*10)/10))+' sf',c:d>0?'var(--blue)':'var(--red)'};
 }
 
+/* ---------- doors / windows ---------- */
+const WINCOL='#3F6EA5';
+function drawOpenings(){
+  const extPx=Math.max(1.5,walls.ext/12*PX);
+  const hd=Math.max(5,extPx/2+3);                 // half-depth (px) of the band that "cuts" the wall
+  openings.forEach((o,i)=>{
+    const horiz=o.orient!=='v';
+    const ax=fx(o.x), ay=fyR(o.y);
+    const bx=horiz?fx(o.x+o.len):fx(o.x), by=horiz?fyR(o.y):fyR(o.y+o.len);
+    // erase the wall beneath so the opening reads as a gap
+    if(horiz)svg.appendChild(el('rect',{x:Math.min(ax,bx),y:ay-hd,width:Math.abs(bx-ax),height:2*hd,fill:'var(--paper)'}));
+    else     svg.appendChild(el('rect',{x:ax-hd,y:Math.min(ay,by),width:2*hd,height:Math.abs(by-ay),fill:'var(--paper)'}));
+    const jamb=(px,py)=>{
+      if(horiz)svg.appendChild(el('line',{x1:px,y1:py-hd,x2:px,y2:py+hd,stroke:'var(--ink)','stroke-width':1.5}));
+      else     svg.appendChild(el('line',{x1:px-hd,y1:py,x2:px+hd,y2:py,stroke:'var(--ink)','stroke-width':1.5}));
+    };
+    if(o.type==='window'){
+      if(horiz)svg.appendChild(el('rect',{x:Math.min(ax,bx),y:ay-hd*0.7,width:Math.abs(bx-ax),height:2*hd*0.7,fill:'rgba(63,110,165,.14)',stroke:WINCOL,'stroke-width':1.2}));
+      else     svg.appendChild(el('rect',{x:ax-hd*0.7,y:Math.min(ay,by),width:2*hd*0.7,height:Math.abs(by-ay),fill:'rgba(63,110,165,.14)',stroke:WINCOL,'stroke-width':1.2}));
+      svg.appendChild(el('line',{x1:ax,y1:ay,x2:bx,y2:by,stroke:WINCOL,'stroke-width':1.2}));   // glazing line
+      jamb(ax,ay);jamb(bx,by);
+    }else if(o.type==='doorway'){
+      jamb(ax,ay);jamb(bx,by);
+    }else{                                          // door — leaf + swing arc, hinge at (ax,ay)
+      const sgn=o.flip?-1:1, R=o.len*PX;
+      const tx=horiz?fx(o.x):fx(o.x+sgn*o.len);
+      const ty=horiz?fyR(o.y-sgn*o.len):fyR(o.y);
+      jamb(ax,ay);jamb(bx,by);
+      svg.appendChild(el('line',{x1:ax,y1:ay,x2:tx,y2:ty,stroke:'var(--ink)','stroke-width':1.5}));     // open leaf
+      svg.appendChild(el('path',{d:`M ${tx} ${ty} A ${R} ${R} 0 0 1 ${bx} ${by}`,fill:'none',stroke:'var(--ink-soft)','stroke-width':1,'stroke-dasharray':'3 3'}));  // swing
+    }
+    // selection highlight (only the selected opening)
+    if(i===selectedOpening)
+      svg.appendChild(el('line',{x1:ax,y1:ay,x2:bx,y2:by,stroke:'var(--red)','stroke-width':3,'stroke-opacity':.5}));
+    // transparent body for tap-to-select / drag-to-move
+    const body=el('line',{x1:ax,y1:ay,x2:bx,y2:by,stroke:'transparent','stroke-width':14,'data-open':i});
+    if(i===selectedOpening)body.setAttribute('class','osel');
+    svg.appendChild(body);
+    // end dots (resize) — only when selected
+    if(i===selectedOpening)
+      [['a',ax,ay],['b',bx,by]].forEach(([hnd,hx,hy])=>
+        svg.appendChild(el('circle',{cx:hx,cy:hy,r:4.5,fill:'#fff',stroke:'var(--red)','stroke-width':1.6,'data-open':i,'data-ohandle':hnd})));
+  });
+}
+
+/* wall segments (ft) that openings snap to: every non-open room edge + the building footprint */
+function wallSegments(){
+  const segs=[],add=(orient,axis,a,b)=>{if(Math.abs(b-a)>0.3)segs.push({orient,axis,a:Math.min(a,b),b:Math.max(a,b)});};
+  rooms.forEach(r=>{if(r.open)return;
+    add('v',r.x,r.y,r.y+r.h); add('v',r.x+r.w,r.y,r.y+r.h);
+    add('h',r.y,r.x,r.x+r.w); add('h',r.y+r.h,r.x,r.x+r.w);
+  });
+  const xE=cur.xE||[];
+  wings.forEach((s,i)=>{const x0=xE[i],x1=xE[i+1];add('v',x0,s.s,s.s+s.d);add('v',x1,s.s,s.s+s.d);add('h',s.s,x0,x1);add('h',s.s+s.d,x0,x1);});
+  return segs;
+}
+// snap an opening (given its center cx,cy in ft and length) to the nearest wall; returns {orient,x,y} or null
+function snapToWall(cx,cy,len){
+  const segs=wallSegments();let best=null,bestD=Infinity;const half=len/2;
+  segs.forEach(sg=>{
+    const lo=sg.a+half,hi=sg.b-half;if(hi<lo)return;      // wall too short for this opening
+    if(sg.orient==='h'){const px=clamp(cx,lo,hi),d=Math.abs(cy-sg.axis)+Math.abs(cx-clamp(cx,sg.a,sg.b));
+      if(d<bestD){bestD=d;best={orient:'h',x:snap(px-half),y:snap(sg.axis),len};}}
+    else{const py=clamp(cy,lo,hi),d=Math.abs(cx-sg.axis)+Math.abs(cy-clamp(cy,sg.a,sg.b));
+      if(d<bestD){bestD=d;best={orient:'v',x:snap(sg.axis),y:snap(py-half),len};}}
+  });
+  return best;
+}
+function placeOpening(feet){
+  const type=placeTool,len=type==='window'?4:3;
+  const s=snapToWall(feet.x,feet.r,len)||{orient:'h',x:snap(feet.x-len/2),y:snap(feet.r),len};
+  openings.push({type,orient:s.orient,x:s.x,y:s.y,len,flip:false});
+  selectedOpening=openings.length-1;selected=null;
+  placeTool=null;updateToolButtons();
+  renderOpenings();renderPlan();scheduleSave();
+}
+function updateToolButtons(){
+  [['door','tool-door'],['doorway','tool-doorway'],['window','tool-window']].forEach(([k,id])=>
+    document.getElementById(id).classList.toggle('armed',placeTool===k));
+  svg.classList.toggle('arming',!!placeTool);
+}
+function armTool(type){placeTool=placeTool===type?null:type;updateToolButtons();}
+
 /* ---------- pinch-zoom / pan / drag ---------- */
 const wrap=document.getElementById('planwrap');
 let view={scale:1,tx:0,ty:0};        // CSS transform applied to the SVG
@@ -487,27 +610,53 @@ svg.addEventListener('pointerdown',e=>{
   pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
   if(pointers.size>=2){                 // second finger down → pinch, abort any drag/pan
     gMoved=true;
-    if(drag){const o=drag.o,r=rooms[drag.idx];r.x=o.x;r.y=o.y;r.w=o.w;r.h=o.h;drag=null;renderPlan();}
+    if(drag){
+      if(drag.kind==='opening')Object.assign(openings[drag.idx],drag.o);
+      else{const o=drag.o,r=rooms[drag.idx];r.x=o.x;r.y=o.y;r.w=o.w;r.h=o.h;}
+      drag=null;renderPlan();
+    }
     panP=null;
     const p=[...pointers.values()];
     pinch={dist:Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y),mid:{x:(p[0].x+p[1].x)/2,y:(p[0].y+p[1].y)/2}};
     e.preventDefault();return;
   }
   gDownT=Date.now();gDownX=e.clientX;gDownY=e.clientY;gMoved=false;
-  const t=e.target,ri=t.getAttribute('data-room');
+  if(placeTool){                                    // armed tool → click a wall to place, then disengage
+    placeOpening(feetFromEvent(e));
+    try{svg.setPointerCapture(e.pointerId);}catch(_){}
+    e.preventDefault();return;
+  }
+  const t=e.target;
+  const oi=t.getAttribute('data-open');
+  if(oi!=null){                                     // door/window: select first, then move/resize (like rooms)
+    const idx=+oi,h=t.getAttribute('data-ohandle');
+    if(h&&idx===selectedOpening){                   // resize handle (only on the selected opening)
+      const p=feetFromEvent(e);
+      drag={kind:'opening',idx,ohandle:h,sx:p.x,sr:p.r,o:Object.assign({},openings[idx])};
+    }else if(idx===selectedOpening){                // already selected → press-and-drag to move
+      const p=feetFromEvent(e);
+      drag={kind:'opening',idx,ohandle:null,sx:p.x,sr:p.r,o:Object.assign({},openings[idx])};
+    }else{                                           // first tap just selects
+      selectedOpening=idx;selected=null;renderPlan();
+    }
+    try{svg.setPointerCapture(e.pointerId);}catch(_){}
+    e.preventDefault();return;
+  }
+  const ri=t.getAttribute('data-room');
   if(ri!=null){
     const idx=+ri,corner=t.getAttribute('data-corner');
+    if(selectedOpening!=null)selectedOpening=null;   // selecting a room clears any opening selection
     if(corner){                                     // resize handle (only rendered on the selected room)
       const p=feetFromEvent(e);
-      drag={type:'resize',idx,corner,sx:p.x,sr:p.r,o:Object.assign({},rooms[idx])};
+      drag={kind:'room',type:'resize',idx,corner,sx:p.x,sr:p.r,o:Object.assign({},rooms[idx])};
     }else if(idx===selected){                       // already selected → press-and-drag to move
       const p=feetFromEvent(e);
-      drag={type:'move',idx,corner:null,sx:p.x,sr:p.r,o:Object.assign({},rooms[idx])};
+      drag={kind:'room',type:'move',idx,corner:null,sx:p.x,sr:p.r,o:Object.assign({},rooms[idx])};
     }else{                                           // first touch just selects — prevents accidental moves
       selected=idx;renderPlan();
     }
   }else{
-    if(selected!=null){selected=null;renderPlan();}  // tapping empty space clears the selection
+    if(selected!=null||selectedOpening!=null){selected=null;selectedOpening=null;renderPlan();}  // tap empty → deselect
     if(view.scale>1){
       panP={id:e.pointerId,sx:e.clientX,sy:e.clientY,otx:view.tx,oty:view.ty};
     }
@@ -537,7 +686,25 @@ svg.addEventListener('pointermove',e=>{
   }
   if(!drag)return;
   gMoved=true;
-  const p=feetFromEvent(e),dx=p.x-drag.sx,dr=p.r-drag.sr,o=drag.o,r=rooms[drag.idx];
+  const p=feetFromEvent(e),dx=p.x-drag.sx,dr=p.r-drag.sr;
+  if(drag.kind==='opening'){
+    const op=openings[drag.idx],so=drag.o;
+    if(!drag.ohandle){                                                 // move — snap the opening's centre to the nearest wall
+      const cx=(so.orient==='v'?so.x:so.x+so.len/2)+dx;
+      const cy=(so.orient==='v'?so.y+so.len/2:so.y)+dr;
+      const s=snapToWall(cx,cy,so.len);
+      if(s){op.orient=s.orient;op.x=s.x;op.y=s.y;}
+      else{op.x=snap(so.x+dx);op.y=snap(so.y+dr);}                     // no wall in range → free move
+    }else if(so.orient!=='v'){                                         // resize along a horizontal wall
+      if(drag.ohandle==='a'){const nx=Math.min(snap(so.x+dx),so.x+so.len-1);op.x=nx;op.len=(so.x+so.len)-nx;}
+      else{op.len=Math.max(1,snap(so.len+dx));}
+    }else{                                                             // resize along a vertical wall
+      if(drag.ohandle==='a'){const ny=Math.min(snap(so.y+dr),so.y+so.len-1);op.y=ny;op.len=(so.y+so.len)-ny;}
+      else{op.len=Math.max(1,snap(so.len+dr));}
+    }
+    renderPlan();return;
+  }
+  const o=drag.o,r=rooms[drag.idx];
   if(drag.type==='move'){
     r.x=clamp(snap(o.x+dx),-cur.offX,(cur.pw-cur.offX)-o.w);
     r.y=clamp(snap(o.y+dr),-cur.offF,(cur.pd-cur.offF)-o.h);
@@ -556,7 +723,7 @@ function endPointer(e){
   pointers.delete(e.pointerId);
   if(pointers.size<2)pinch=null;
   if(panP&&e.pointerId===panP.id)panP=null;
-  if(drag){drag=null;renderList();scheduleSave();}
+  if(drag){const wasOpening=drag.kind==='opening';drag=null;renderList();if(wasOpening)renderOpenings();scheduleSave();}
   if(pointers.size===0&&!gMoved&&Date.now()-gDownT<300){   // double-tap empty/room → reset zoom
     if(Date.now()-lastTapT<300&&Math.hypot(e.clientX-lastTapX,e.clientY-lastTapY)<30){resetView();lastTapT=0;}
     else{lastTapT=Date.now();lastTapX=e.clientX;lastTapY=e.clientY;}
@@ -564,7 +731,12 @@ function endPointer(e){
 }
 svg.addEventListener('pointerup',endPointer);
 svg.addEventListener('pointercancel',endPointer);
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&selected!=null){selected=null;renderPlan();}});
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Escape')return;
+  if(placeTool){placeTool=null;updateToolButtons();}
+  else if(selectedOpening!=null){selectedOpening=null;renderPlan();}
+  else if(selected!=null){selected=null;renderPlan();}
+});
 
 /* ---------- room list ---------- */
 const list=document.getElementById('roomlist');
@@ -634,6 +806,38 @@ document.getElementById('addbtn').onclick=addRoom;
 document.getElementById('rsf').addEventListener('keydown',e=>{if(e.key==='Enter')addRoom();});
 document.getElementById('rn').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('rsf').focus();});
 
+/* ---------- doors / windows editor ---------- */
+const olist=document.getElementById('openlist');
+const OTYPES=['door','doorway','window'];
+function renderOpenings(){
+  if(!openings.length){olist.innerHTML='<tr><td colspan="7" class="empty">No doors or windows yet — add one above, then drag it onto a wall.</td></tr>';return;}
+  olist.innerHTML=openings.map((o,i)=>`<tr>
+    <td class="l"><select class="osel" data-oi="${i}" data-ok="type">${OTYPES.map(t=>`<option value="${t}"${o.type===t?' selected':''}>${t[0].toUpperCase()+t.slice(1)}</option>`).join('')}</select></td>
+    <td><select class="osel" data-oi="${i}" data-ok="orient"><option value="h"${o.orient!=='v'?' selected':''}>↔</option><option value="v"${o.orient==='v'?' selected':''}>↕</option></select></td>
+    <td><input class="num" data-oi="${i}" data-ok="x" type="number" step="0.5" value="${fmt(o.x)}"></td>
+    <td><input class="num" data-oi="${i}" data-ok="y" type="number" step="0.5" value="${fmt(o.y)}"></td>
+    <td><input class="num" data-oi="${i}" data-ok="len" type="number" min="0.5" step="0.5" value="${fmt(o.len)}"></td>
+    <td style="text-align:center"><input type="checkbox" data-oi="${i}" data-ok="flip" ${o.flip?'checked':''} title="Flip door swing" ${o.type==='door'?'':'disabled'}></td>
+    <td><button class="del" data-odel="${i}" title="Delete">✕</button></td>
+  </tr>`).join('');
+}
+olist.addEventListener('input',e=>{
+  const i=e.target.dataset.oi,k=e.target.dataset.ok;if(i==null)return;
+  const o=openings[i];
+  if(k==='type'){o.type=e.target.value;renderOpenings();}
+  else if(k==='orient'){o.orient=e.target.value;}
+  else if(k==='flip'){o.flip=e.target.checked;}
+  else{const v=parseFloat(e.target.value);if(!isNaN(v))o[k]=(k==='len')?Math.max(0.5,v):v;}
+  renderPlan();scheduleSave();
+});
+olist.addEventListener('click',e=>{
+  const del=e.target.dataset.odel;if(del==null)return;
+  openings.splice(+del,1);selectedOpening=null;renderOpenings();renderPlan();scheduleSave();
+});
+document.getElementById('tool-door').onclick=()=>armTool('door');
+document.getElementById('tool-doorway').onclick=()=>armTool('doorway');
+document.getElementById('tool-window').onclick=()=>armTool('window');
+
 /* ---------- export / import / save ---------- */
 // Prefer the host-provided storage API; otherwise fall back to the browser's
 // own memory (localStorage) so Save still persists in a normal browser.
@@ -665,8 +869,11 @@ const STORE=(typeof window!=='undefined'&&window.storage)?window.storage
 // Working autosave stays local (your own draft); named versions use the shared store when REMOTE_URL is set.
 const SHARED=REMOTE_URL?makeRemoteStore(REMOTE_URL):STORE;
 const KEY='savedLayout';
-const DEFAULTS={plot:JSON.parse(JSON.stringify(plot)),walls:JSON.parse(JSON.stringify(walls)),wings:JSON.parse(JSON.stringify(wings)),rooms:JSON.parse(JSON.stringify(rooms))};
-let ready=false,saveTimer=null;
+const DEFAULT_NAME_KEY='defaultVersionName';
+const SEED_NAME='Original';                       // built-in layout, seeded as the shared default on first run
+const LOCAL_OPT='__local-auto-save__';            // reserved picker value for this browser's autosave
+const DEFAULTS={plot:JSON.parse(JSON.stringify(plot)),walls:JSON.parse(JSON.stringify(walls)),wings:JSON.parse(JSON.stringify(wings)),rooms:JSON.parse(JSON.stringify(rooms)),openings:JSON.parse(JSON.stringify(openings))};
+let ready=false,saveTimer=null,defaultName=null,localDraftExists=false;
 
 function ioStatus(msg,err){const s=document.getElementById('iostatus');s.textContent=msg;s.style.color=err?'var(--red)':'var(--green)';}
 
@@ -681,36 +888,76 @@ function applyData(d){
     rooms=d.rooms.map((r,i)=>({name:r.name!=null?String(r.name):"Room "+(i+1),
       desired:Math.max(1,+r.desired||1),x:+r.x||0,y:+r.y||0,
       w:Math.max(1,+r.w||1),h:Math.max(1,+r.h||1),color:r.color||RC[i%RC.length],open:!!r.open}));
-  selected=null;
-  buildPlotPanel();buildWallsPanel();buildFramePanel();renderPlan();renderList();
+  openings=Array.isArray(d.openings)?d.openings.map(o=>({
+    type:OTYPES.includes(o.type)?o.type:'door',
+    orient:o.orient==='v'?'v':'h',
+    x:+o.x||0,y:+o.y||0,len:Math.max(0.5,+o.len||3),flip:!!o.flip})):[];
+  selected=null;selectedOpening=null;
+  buildPlotPanel();buildWallsPanel();buildFramePanel();renderPlan();renderList();renderOpenings();
 }
 
 async function saveLayout(manual){
   if(!STORE){if(manual)ioStatus("In-app save isn't available here — use Export instead",true);return;}
-  try{await STORE.set(KEY,JSON.stringify({plot,walls,wings,rooms}),false);ioStatus("Saved ✓");}
+  try{
+    await STORE.set(KEY,JSON.stringify({plot,walls,wings,rooms,openings,savedAt:new Date().toISOString()}),false);
+    if(!localDraftExists){localDraftExists=true;refreshVersions();}   // surface the local-auto-save entry the first time
+    ioStatus("Auto-saved ✓");
+  }
   catch(e){ioStatus("Couldn't save",true);}
 }
 function scheduleSave(){
   if(!ready||!STORE)return;
   ioStatus("Saving…");clearTimeout(saveTimer);saveTimer=setTimeout(()=>saveLayout(false),700);
 }
+async function getDefaultName(){
+  if(!SHARED)return null;
+  try{const res=await SHARED.get(DEFAULT_NAME_KEY,false);return res&&res.value?res.value:null;}
+  catch(e){return null;}
+}
+async function putDefaultName(name){
+  if(!SHARED)return false;
+  try{await SHARED.set(DEFAULT_NAME_KEY,name,false);return true;}catch(e){return false;}
+}
 async function loadSaved(){
+  defaultName=await getDefaultName();
+  // note (don't load) this browser's autosave — it's offered in the picker, never auto-applied over the default
   if(STORE){
-    try{const res=await STORE.get(KEY,false);
-      if(res&&res.value){applyData(JSON.parse(res.value));ioStatus("Loaded your saved layout");}
-    }catch(e){/* nothing saved yet */}
+    try{const res=await STORE.get(KEY,false);localDraftExists=!!(res&&res.value);}catch(e){}
+  }
+  // first run against an empty shared store: seed the built-in layout as the shared default until someone changes it
+  if(SHARED&&!defaultName){
+    try{
+      const obj=await getVersions();
+      if(Object.keys(obj).length===0){
+        obj[SEED_NAME]={...JSON.parse(JSON.stringify(DEFAULTS)),savedAt:new Date().toISOString()};
+        if(await putVersions(obj)&&await putDefaultName(SEED_NAME))defaultName=SEED_NAME;
+      }
+    }catch(e){/* keep the built-in already on screen */}
+  }
+  // load the shared default (falls back to the built-in already rendered if the store is unreachable)
+  if(defaultName){
+    try{const obj=await getVersions();
+      if(obj[defaultName]){applyData(obj[defaultName]);ioStatus(`Loaded default (“${defaultName}”)`);}
+    }catch(e){/* keep the built-in already on screen */}
   }
   ready=true;
 }
-async function resetDefaults(){
-  plot=JSON.parse(JSON.stringify(DEFAULTS.plot));
-  walls=JSON.parse(JSON.stringify(DEFAULTS.walls));
-  wings=JSON.parse(JSON.stringify(DEFAULTS.wings));
-  rooms=JSON.parse(JSON.stringify(DEFAULTS.rooms));
-  selected=null;
-  buildPlotPanel();buildWallsPanel();buildFramePanel();renderPlan();renderList();
-  if(STORE){try{await STORE.delete(KEY,false);}catch(e){}}
-  ioStatus("Reset to defaults");
+async function resetToDefault(){
+  const obj=defaultName?await getVersions():null;
+  const data=obj&&obj[defaultName]?obj[defaultName]:null;
+  selected=null;selectedOpening=null;
+  if(data){
+    applyData(data);ioStatus(`Reset to default (“${defaultName}”)`);
+  }else{
+    plot=JSON.parse(JSON.stringify(DEFAULTS.plot));
+    walls=JSON.parse(JSON.stringify(DEFAULTS.walls));
+    wings=JSON.parse(JSON.stringify(DEFAULTS.wings));
+    rooms=JSON.parse(JSON.stringify(DEFAULTS.rooms));
+    openings=JSON.parse(JSON.stringify(DEFAULTS.openings));
+    buildPlotPanel();buildWallsPanel();buildFramePanel();renderPlan();renderList();renderOpenings();
+    ioStatus("Reset to the built-in default");
+  }
+  scheduleSave();
 }
 
 function exportJSON(){
@@ -718,7 +965,8 @@ function exportJSON(){
     plot:{pw:plot.pw,pd:plot.pd,offF:plot.offF,offR:plot.offR},
     walls:{ext:walls.ext,int:walls.int},
     wings:wings.map(s=>({w:s.w,d:s.d,s:s.s})),
-    rooms:rooms.map(r=>({name:r.name,desired:r.desired,x:r.x,y:r.y,w:r.w,h:r.h,color:r.color,open:!!r.open}))};
+    rooms:rooms.map(r=>({name:r.name,desired:r.desired,x:r.x,y:r.y,w:r.w,h:r.h,color:r.color,open:!!r.open})),
+    openings:openings.map(o=>({type:o.type,orient:o.orient,x:o.x,y:o.y,len:o.len,flip:!!o.flip}))};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
   const url=URL.createObjectURL(blob);const a=document.createElement('a');
   a.href=url;a.download=`floor-plan-${new Date().toISOString().slice(0,10)}.json`;
@@ -737,8 +985,7 @@ function importJSON(file){
   reader.readAsText(file);
 }
 
-document.getElementById('savebtn').onclick=()=>saveLayout(true);
-document.getElementById('resetbtn').onclick=resetDefaults;
+document.getElementById('resetbtn').onclick=resetToDefault;
 document.getElementById('exportbtn').onclick=exportJSON;
 document.getElementById('importbtn').onclick=()=>document.getElementById('importfile').click();
 document.getElementById('importfile').addEventListener('change',e=>{
@@ -756,47 +1003,93 @@ async function putVersions(obj){
   if(!SHARED)return false;
   try{await SHARED.set(VKEY,JSON.stringify(obj),false);return true;}catch(e){return false;}
 }
-function snapshot(){return {plot,walls,wings,rooms,savedAt:new Date().toISOString()};}
+function snapshot(){return {plot,walls,wings,rooms,openings,savedAt:new Date().toISOString()};}
 const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+function updateStarState(){
+  const name=document.getElementById('vername').value.trim();
+  const btn=document.getElementById('starbtn');
+  const isDefault=!!name&&name===defaultName;
+  btn.textContent=isDefault?'★ Default':'☆ Default';
+  btn.classList.toggle('active',isDefault);
+  // keep the picker in sync: highlight the selected version, or the placeholder for a new/typed name
+  const sel=document.getElementById('verlist');
+  sel.value=[...sel.options].some(o=>o.value===name)?name:'';
+}
 async function refreshVersions(sel){
-  const el=document.getElementById('verlist');const obj=await getVersions();
+  const picker=document.getElementById('verlist');const obj=await getVersions();
   const names=Object.keys(obj).sort((a,b)=>(obj[b].savedAt||'').localeCompare(obj[a].savedAt||''));
-  el.innerHTML=`<option value="">— Saved versions (${names.length}) —</option>`+
-    names.map(n=>`<option value="${esc(n)}">${esc(n)}${obj[n].savedAt?' · '+obj[n].savedAt.slice(0,10):''}</option>`).join('');
-  if(sel!=null)el.value=sel;
+  let html=`<option value="">— Saved versions (${names.length}) —</option>`;
+  if(localDraftExists)html+=`<option value="${LOCAL_OPT}">⟳ local-auto-save (this browser)</option>`;
+  html+=names.map(n=>`<option value="${esc(n)}">${n===defaultName?'★ ':''}${esc(n)}${obj[n].savedAt?' · '+obj[n].savedAt.slice(0,10):''}</option>`).join('');
+  picker.innerHTML=html;
+  if(sel!=null)document.getElementById('vername').value=sel;
+  updateStarState();
 }
 async function saveVersion(){
-  if(!SHARED){ioStatus("Saving versions isn't available here — use Export instead",true);return;}
+  if(!SHARED){ioStatus("Saving isn't available here — use Export instead",true);return;}
   const inp=document.getElementById('vername'),name=inp.value.trim();
-  if(!name){ioStatus("Type a version name first",true);inp.focus();return;}
+  if(!name){ioStatus("Type a name first",true);inp.focus();return;}
   const obj=await getVersions();
   if(obj[name]&&!confirm(`Overwrite the saved version “${name}”?`))return;
   obj[name]=snapshot();
   ioStatus("Saving…");
   if(!(await putVersions(obj))){ioStatus("Couldn't reach the shared store — not saved",true);return;}
-  inp.value='';await refreshVersions(name);ioStatus(`Saved version “${name}”`);
+  await refreshVersions(name);ioStatus(`Saved “${name}”`);
 }
-async function loadVersion(){
-  const el=document.getElementById('verlist'),name=el.value;
-  if(!name){ioStatus("Pick a version to load",true);return;}
+async function loadVersion(name){
+  if(!name)return;
   const obj=await getVersions();
-  if(!obj[name]){ioStatus("That version no longer exists",true);await refreshVersions('');return;}
-  applyData(obj[name]);scheduleSave();ioStatus(`Loaded “${name}”`);
+  if(obj[name]){selected=null;applyData(obj[name]);document.getElementById('vername').value=name;scheduleSave();ioStatus(`Loaded “${name}”`);}
+  else{ioStatus("That version no longer exists",true);await refreshVersions('');}
+  updateStarState();
+}
+async function loadLocalDraft(){
+  if(!STORE)return;
+  try{const res=await STORE.get(KEY,false);
+    if(res&&res.value){selected=null;applyData(JSON.parse(res.value));document.getElementById('vername').value='';ioStatus("Loaded local-auto-save (this browser)");}
+  }catch(e){ioStatus("Couldn't load local-auto-save",true);}
+  updateStarState();
 }
 async function deleteVersion(){
-  const el=document.getElementById('verlist'),name=el.value;
-  if(!name){ioStatus("Pick a version to delete",true);return;}
+  const name=document.getElementById('vername').value.trim();
+  if(!name){ioStatus("Pick or name a version to delete",true);return;}
+  const obj=await getVersions();
+  if(!obj[name]){ioStatus("That name isn't a saved version",true);return;}
   if(!confirm(`Delete the saved version “${name}”?`))return;
-  const obj=await getVersions();delete obj[name];
+  delete obj[name];
   if(!(await putVersions(obj))){ioStatus("Couldn't reach the shared store",true);return;}
-  await refreshVersions('');ioStatus(`Deleted “${name}”`);
+  if(defaultName===name){await putDefaultName('');defaultName=null;}
+  document.getElementById('vername').value='';
+  await refreshVersions('');
+  ioStatus(`Deleted “${name}”`);
+}
+async function toggleDefault(){
+  const name=document.getElementById('vername').value.trim();
+  if(!name){ioStatus("Pick or name a saved version first",true);return;}
+  const obj=await getVersions();
+  if(!obj[name]){ioStatus("Save this as a version before setting it as default",true);return;}
+  const already=defaultName===name;
+  const msg=already
+    ? `Remove “${name}” as the default layout for everyone?`
+    : `Set “${name}” as the default layout? Every new visitor, and “Reset to default”, will load this — replacing the current shared default.`;
+  if(!confirm(msg))return;
+  if(!(await putDefaultName(already?'':name))){ioStatus("Couldn't reach the shared store",true);return;}
+  defaultName=already?null:name;
+  await refreshVersions(name);
+  ioStatus(already?`“${name}” is no longer the default`:`“${name}” set as the default for everyone`);
 }
 document.getElementById('savever').onclick=saveVersion;
-document.getElementById('loadver').onclick=loadVersion;
 document.getElementById('delver').onclick=deleteVersion;
-document.getElementById('vername').addEventListener('keydown',e=>{if(e.key==='Enter')saveVersion();});
+document.getElementById('starbtn').onclick=toggleDefault;
+document.getElementById('verlist').addEventListener('change',e=>{
+  const v=e.target.value;
+  if(v===LOCAL_OPT)loadLocalDraft();
+  else if(v)loadVersion(v);
+});
+document.getElementById('vername').addEventListener('input',updateStarState);
 
-renderPlan();renderList();loadSaved();refreshVersions();
+renderPlan();renderList();renderOpenings();
+(async()=>{await loadSaved();await refreshVersions();})();
 </script>
 </body>
 </html>
