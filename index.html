@@ -188,7 +188,7 @@
       <button class="btn ghost tool" id="tool-door">＋ Door</button>
       <button class="btn ghost tool" id="tool-doorway">＋ Doorway</button>
       <button class="btn ghost tool" id="tool-window">＋ Window</button>
-      <span class="hint" id="openhint">Tip: <b>right-click the plan</b> to add or edit doors/windows right where you click. Or pick a tool here and click a wall. Tap a placed item to move it (snaps to walls) or drag an end dot to resize.</span>
+      <span class="hint" id="openhint">Tip: <b>right-click</b> (or <b>press &amp; hold</b> on touch) the plan to add or edit doors/windows right where you tap. Or pick a tool here and click a wall. Tap a placed item to move it (snaps to walls) or drag an end dot to resize.</span>
     </div>
     <table class="rooms" id="opentable">
       <thead><tr>
@@ -204,7 +204,7 @@
       <div class="grp"><label for="furnsel">Furniture</label>
         <select class="verlist" id="furnsel" style="max-width:200px"></select></div>
       <button class="btn tool" id="furn-place">＋ Place</button>
-      <span class="hint" id="furnhint">Tip: <b>right-click the plan</b> to add furniture (or rotate/delete a piece) right where you click. Or pick a piece here and hit Place. Tap a piece to move it; edit its size below.</span>
+      <span class="hint" id="furnhint">Tip: <b>right-click</b> (or <b>press &amp; hold</b> on touch) the plan to add furniture (or rotate/delete a piece) right where you tap. Or pick a piece here and hit Place. Tap a piece to move it; edit its size below.</span>
     </div>
     <table class="rooms" id="furntable">
       <thead><tr>
@@ -718,6 +718,7 @@ const pointers=new Map();            // active pointerId -> {x,y} in client px
 let pinch=null;                      // {dist,mid} while two fingers are down
 let panP=null;                       // {id,sx,sy,otx,oty} one-finger background pan
 let gDownT=0,gDownX=0,gDownY=0,gMoved=false,lastTapT=0,lastTapX=0,lastTapY=0;
+let lpTimer=null,lpX=0,lpY=0,lpTarget=null;   // long-press (touch) → context menu
 const MAXZ=8;
 
 function applyView(){svg.style.transform=`translate(${view.tx}px,${view.ty}px) scale(${view.scale})`;}
@@ -747,12 +748,29 @@ svg.addEventListener('pointerdown',e=>{
       else{const o=drag.o,r=rooms[drag.idx];r.x=o.x;r.y=o.y;r.w=o.w;r.h=o.h;}
       drag=null;renderPlan();
     }
-    panP=null;
+    panP=null;clearTimeout(lpTimer);lpTimer=null;
     const p=[...pointers.values()];
     pinch={dist:Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y),mid:{x:(p[0].x+p[1].x)/2,y:(p[0].y+p[1].y)/2}};
     e.preventDefault();return;
   }
   gDownT=Date.now();gDownX=e.clientX;gDownY=e.clientY;gMoved=false;
+  // touch/pen long-press (~half a second, held still) opens the context menu — the mobile "right-click"
+  clearTimeout(lpTimer);lpTimer=null;
+  if(e.pointerType!=='mouse'){
+    lpTarget=e.target;lpX=e.clientX;lpY=e.clientY;
+    lpTimer=setTimeout(()=>{
+      lpTimer=null;
+      if(drag){                                  // undo any move/resize this press started
+        if(drag.kind==='opening')Object.assign(openings[drag.idx],drag.o);
+        else if(drag.kind==='furn')Object.assign(furniture[drag.idx],drag.o);
+        else if(drag.kind==='room'){const o=drag.o,r=rooms[drag.idx];r.x=o.x;r.y=o.y;r.w=o.w;r.h=o.h;}
+        drag=null;renderPlan();
+      }
+      panP=null;gMoved=true;                     // suppress the tap/double-tap that would otherwise follow
+      openCtxMenu(lpTarget,lpX,lpY);
+      try{navigator.vibrate&&navigator.vibrate(15);}catch(_){}
+    },500);
+  }
   if(placeFurn){                                    // armed furniture tool → click to drop, then disengage
     placeFurnItem(feetFromEvent(e));
     try{svg.setPointerCapture(e.pointerId);}catch(_){}
@@ -818,6 +836,7 @@ svg.addEventListener('pointerdown',e=>{
 
 svg.addEventListener('pointermove',e=>{
   if(pointers.has(e.pointerId))pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(lpTimer&&Math.hypot(e.clientX-lpX,e.clientY-lpY)>10){clearTimeout(lpTimer);lpTimer=null;}  // moved → not a long-press
   if(pinch&&pointers.size>=2){
     const p=[...pointers.values()];
     const dist=Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y);
@@ -877,6 +896,7 @@ svg.addEventListener('pointermove',e=>{
 
 function endPointer(e){
   pointers.delete(e.pointerId);
+  clearTimeout(lpTimer);lpTimer=null;
   if(pointers.size<2)pinch=null;
   if(panP&&e.pointerId===panP.id)panP=null;
   if(drag){const k=drag.kind;drag=null;renderList();if(k==='opening')renderOpenings();if(k==='furn')renderFurniture();scheduleSave();}
@@ -1054,15 +1074,15 @@ function showCtx(x,y){ctxEl.hidden=false;const w=ctxEl.offsetWidth,hh=ctxEl.offs
   ctxEl.style.left=Math.max(4,Math.min(x,innerWidth-w-6))+'px';
   ctxEl.style.top=Math.max(4,Math.min(y,innerHeight-hh-6))+'px';}
 function hideCtx(){ctxEl.hidden=true;}
-svg.addEventListener('contextmenu',e=>{
-  e.preventDefault();
-  const t=e.target,g=a=>t.getAttribute&&t.getAttribute(a),feet=feetFromEvent(e);
+function openCtxMenu(target,cx,cy){
+  const g=a=>target&&target.getAttribute&&target.getAttribute(a),feet=feetFromEvent({clientX:cx,clientY:cy});
   const fi=g('data-furn'),oi=g('data-open');
   if(fi!=null)ctx={kind:'furn',idx:+fi,feet};
   else if(oi!=null)ctx={kind:'open',idx:+oi,feet};
   else ctx={kind:'add',feet};
-  renderCtx('root');showCtx(e.clientX,e.clientY);
-});
+  renderCtx('root');showCtx(cx,cy);
+}
+svg.addEventListener('contextmenu',e=>{e.preventDefault();openCtxMenu(e.target,e.clientX,e.clientY);});
 ctxEl.addEventListener('click',e=>{
   const b=e.target.closest('button');if(!b)return;const act=b.dataset.act,feet=ctx.feet;
   if(act==='furnpanel'){renderCtx('furn');showCtx(parseFloat(ctxEl.style.left),parseFloat(ctxEl.style.top));return;}
