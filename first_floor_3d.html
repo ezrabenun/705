@@ -257,7 +257,7 @@ function build(L){
 
   // ---- doors (open leaf shows swing; doorways are just the gap) ----
   openings.forEach(o=>{ if(o.type!=='door')return; const mat=M(0xf2efe9,{roughness:.7}),s=o.flip?-1:1;
-    if(o.orient==='h') world.add(box(0.16,6.7,o.len,mat,o.x-CX,FT,CZ-(o.y+s*o.len/2)));
+    if(o.orient==='h') world.add(box(0.16,6.7,o.len,mat,o.x-CX,FT,CZ-(o.y-s*o.len/2)));  // z is flipped, so swing sign flips
     else               world.add(box(o.len,6.7,0.16,mat,(o.x+s*o.len/2)-CX,FT,CZ-o.y)); });
 
   // ---- furniture ----
