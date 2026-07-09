@@ -40,6 +40,15 @@
   #plan [data-frot]{pointer-events:all;cursor:grab;}
   svg#plan.arming{cursor:crosshair;}
   .btn.tool.armed{background:var(--red);border-color:var(--red);color:#fff;}
+  .ctxmenu{position:fixed;z-index:1000;background:#fff;border:1px solid var(--line);border-radius:8px;
+    box-shadow:0 8px 28px rgba(20,30,40,.18);padding:5px;min-width:158px;font-family:var(--mono);font-size:12px;}
+  .ctxmenu[hidden]{display:none;}
+  .ctxmenu .hd{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft);padding:5px 9px 3px;}
+  .ctxmenu button{display:block;width:100%;text-align:left;background:none;border:none;color:var(--ink);
+    padding:6px 10px;border-radius:5px;cursor:pointer;font:inherit;}
+  .ctxmenu button:hover{background:#eef1f4;}
+  .ctxmenu button.danger:hover{background:#f6e2db;color:var(--red);}
+  .ctxmenu .scroll{max-height:44vh;overflow-y:auto;}
 
   .tabs{display:flex;gap:0;margin-top:12px;border-bottom:1.5px solid var(--ink);}
   .tabs button{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;
@@ -179,7 +188,7 @@
       <button class="btn ghost tool" id="tool-door">＋ Door</button>
       <button class="btn ghost tool" id="tool-doorway">＋ Doorway</button>
       <button class="btn ghost tool" id="tool-window">＋ Window</button>
-      <span class="hint" id="openhint">Pick a tool, then click a wall to place it. Tap a placed item to select it, then drag to move (snaps to walls) or drag an end dot to resize.</span>
+      <span class="hint" id="openhint">Tip: <b>right-click the plan</b> to add or edit doors/windows right where you click. Or pick a tool here and click a wall. Tap a placed item to move it (snaps to walls) or drag an end dot to resize.</span>
     </div>
     <table class="rooms" id="opentable">
       <thead><tr>
@@ -195,7 +204,7 @@
       <div class="grp"><label for="furnsel">Furniture</label>
         <select class="verlist" id="furnsel" style="max-width:200px"></select></div>
       <button class="btn tool" id="furn-place">＋ Place</button>
-      <span class="hint" id="furnhint">Pick a piece, hit Place, then click the plan to drop it. Tap a piece to select it, then drag to move, use ↻ to rotate, or edit its size below.</span>
+      <span class="hint" id="furnhint">Tip: <b>right-click the plan</b> to add furniture (or rotate/delete a piece) right where you click. Or pick a piece here and hit Place. Tap a piece to move it; edit its size below.</span>
     </div>
     <table class="rooms" id="furntable">
       <thead><tr>
@@ -240,6 +249,8 @@
     <span>SHEET A-1 · DRAFT</span>
   </div>
 </div>
+
+<div id="ctxmenu" class="ctxmenu" hidden></div>
 
 <script>
 const SVGNS="http://www.w3.org/2000/svg";
@@ -726,6 +737,7 @@ function feetFromEvent(e){
 }
 
 svg.addEventListener('pointerdown',e=>{
+  if(e.button===2)return;                // right-click is handled by the context menu
   pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
   if(pointers.size>=2){                 // second finger down → pinch, abort any drag/pan
     gMoved=true;
@@ -1013,6 +1025,65 @@ flist.addEventListener('click',e=>{
   else if(rot!=null){furniture[+rot].rot=((furniture[+rot].rot||0)+90)%360;renderFurniture();renderPlan();scheduleSave();}
 });
 document.getElementById('furn-place').onclick=armFurn;
+
+/* ---------- right-click context menu (place & edit on the plan) ---------- */
+const ctxEl=document.getElementById('ctxmenu');
+let ctx=null;   // {kind:'add'|'furn'|'open', idx?, feet}
+function renderCtx(panel){
+  let h='';
+  if(ctx.kind==='furn'){
+    h=`<div class="hd">Furniture</div><button data-act="frot">↻ Rotate 90°</button>`+
+      `<button data-act="fsel">Select</button><button class="danger" data-act="fdel">✕ Delete</button>`;
+  }else if(ctx.kind==='open'){
+    const o=openings[ctx.idx]||{};
+    h=`<div class="hd">${(o.type||'opening')}</div><button data-act="orot">⤾ Turn (H ↔ V)</button>`+
+      (o.type==='door'?`<button data-act="oflip">⇄ Flip swing</button>`:'')+
+      `<button class="danger" data-act="odel">✕ Delete</button>`;
+  }else if(panel==='furn'){
+    h=`<div class="hd">Add furniture</div><div class="scroll">`+
+      FURN_ORDER.map(t=>`<button data-act="addfurn" data-type="${t}">${FURN[t].lbl}</button>`).join('')+
+      `</div><button data-act="back">‹ Back</button>`;
+  }else{
+    h=`<div class="hd">Add here</div><button data-act="adddoor">＋ Door</button>`+
+      `<button data-act="adddoorway">＋ Doorway</button><button data-act="addwindow">＋ Window</button>`+
+      `<button data-act="furnpanel">＋ Furniture ▸</button>`;
+  }
+  ctxEl.innerHTML=h;
+}
+function showCtx(x,y){ctxEl.hidden=false;const w=ctxEl.offsetWidth,hh=ctxEl.offsetHeight;
+  ctxEl.style.left=Math.max(4,Math.min(x,innerWidth-w-6))+'px';
+  ctxEl.style.top=Math.max(4,Math.min(y,innerHeight-hh-6))+'px';}
+function hideCtx(){ctxEl.hidden=true;}
+svg.addEventListener('contextmenu',e=>{
+  e.preventDefault();
+  const t=e.target,g=a=>t.getAttribute&&t.getAttribute(a),feet=feetFromEvent(e);
+  const fi=g('data-furn'),oi=g('data-open');
+  if(fi!=null)ctx={kind:'furn',idx:+fi,feet};
+  else if(oi!=null)ctx={kind:'open',idx:+oi,feet};
+  else ctx={kind:'add',feet};
+  renderCtx('root');showCtx(e.clientX,e.clientY);
+});
+ctxEl.addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;const act=b.dataset.act,feet=ctx.feet;
+  if(act==='furnpanel'){renderCtx('furn');showCtx(parseFloat(ctxEl.style.left),parseFloat(ctxEl.style.top));return;}
+  if(act==='back'){renderCtx('root');return;}
+  switch(act){
+    case'adddoor':placeTool='door';placeOpening(feet);break;
+    case'adddoorway':placeTool='doorway';placeOpening(feet);break;
+    case'addwindow':placeTool='window';placeOpening(feet);break;
+    case'addfurn':placeFurn=b.dataset.type;placeFurnItem(feet);break;
+    case'frot':furniture[ctx.idx].rot=((furniture[ctx.idx].rot||0)+90)%360;renderFurniture();renderPlan();scheduleSave();break;
+    case'fsel':selectedFurn=ctx.idx;selected=null;selectedOpening=null;renderPlan();break;
+    case'fdel':furniture.splice(ctx.idx,1);selectedFurn=null;renderFurniture();renderPlan();scheduleSave();break;
+    case'orot':{const o=openings[ctx.idx];if(o){o.orient=o.orient==='v'?'h':'v';renderOpenings();renderPlan();scheduleSave();}break;}
+    case'oflip':{const o=openings[ctx.idx];if(o){o.flip=!o.flip;renderOpenings();renderPlan();scheduleSave();}break;}
+    case'odel':openings.splice(ctx.idx,1);selectedOpening=null;renderOpenings();renderPlan();scheduleSave();break;
+  }
+  hideCtx();
+});
+document.addEventListener('pointerdown',e=>{if(!e.target.closest('#ctxmenu'))hideCtx();},true);
+window.addEventListener('scroll',hideCtx,true);
+document.addEventListener('keydown',e=>{if(e.key==='Escape')hideCtx();});
 
 /* ---------- export / import / save ---------- */
 // Prefer the host-provided storage API; otherwise fall back to the browser's
