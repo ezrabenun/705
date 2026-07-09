@@ -190,6 +190,11 @@ function build(L){
   const wallsCfg=L.walls||{ext:7,int:4.75};
   const T_EXT=Math.max(0.25,(+wallsCfg.ext||7)/12), T_INT=Math.max(0.2,(+wallsCfg.int||4.75)/12);
   const closed=rooms.filter(r=>!r.open);
+  // building footprint from the wings/frame — used to tell exterior walls from interior ones
+  const wings=Array.isArray(L.wings)?L.wings:[];
+  const xE=[0]; wings.forEach(s=>xE.push(xE[xE.length-1]+(+s.w||0)));
+  function insideBuilding(x,z){for(let i=0;i<wings.length;i++){const y0=+wings[i].s||0,y1=y0+(+wings[i].d||0);
+    if(x>xE[i]+0.05&&x<xE[i+1]-0.05&&z>y0+0.05&&z<y1-0.05)return true;}return false;}
 
   // centre / camera framing from the walled rooms (fall back to all rooms)
   const frame=(closed.length?closed:rooms);
@@ -210,7 +215,10 @@ function build(L){
     world.add(box(r.w-0.1,h,r.h-0.1,M(new THREE.Color(col),{roughness:.9}),r.x+r.w/2-CX,y,CZ-(r.y+r.h/2)));});
 
   // ---- walls (from walled-room edges, deduped, with door gaps) ----
+  // "outside" = beyond the building footprint. Falls back to the room test if there are no wings.
+  const hasWings=wings.length>0;
   function insideAny(x,z){for(const r of closed){if(x>r.x+0.05&&x<r.x+r.w-0.05&&z>r.y+0.05&&z<r.y+r.h-0.05)return true;}return false;}
+  const isOutside=(x,z)=>hasWings?!insideBuilding(x,z):!insideAny(x,z);
   function gapHit(mx,mz,horiz){                     // doors & doorways cut the wall; windows do not
     for(const o of openings){ if(o.type==='window')continue;
       if(horiz){ if(o.orient==='h'&&Math.abs(mz-o.y)<0.7&&mx>o.x-0.25&&mx<o.x+o.len+0.25)return true; }
@@ -233,7 +241,7 @@ function build(L){
       let run=null,rExt=null; const flush=()=>{if(run){addWall(run.x1,run.z1,run.x2,run.z2,rExt);run=null;}};
       for(let i=0;i<n;i++){
         const mx=e.x1+(e.x2-e.x1)*(i+0.5)/n, mz=e.z1+(e.z2-e.z1)*(i+0.5)/n;
-        const outside=!insideAny(mx+e.nx*0.4, mz+e.nz*0.4);
+        const outside=isOutside(mx+e.nx*0.4, mz+e.nz*0.4);
         let draw=true, ext=outside;
         if(gapHit(mx,mz,e.h)) draw=false;
         else if(!outside){const k=key(e.h?mz:mx,e.h?mx:mz,e.h); if(drawn.has(k))draw=false; else drawn.add(k);}
