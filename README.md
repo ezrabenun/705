@@ -6,10 +6,24 @@ room to select it, then drag to move or drag a corner to resize. In the
 to drop it there — it snaps to the wall and the tool disengages. Tap a placed
 opening to select it, then drag to move (it stays snapped to walls, and
 reorients when moved onto a perpendicular wall) or drag an end dot to resize.
+In the **Furniture** tab, pick a piece (sofa, bed, table, counter, fridge,
+toilet, tub…), hit Place, and click the plan to drop it as a top-down symbol;
+tap to select, drag to move, `R` / ↻ to rotate, edit size in the list.
 Edit the frame, plot, and wall thickness in the tabs. Export/Import layouts, and save
 named **versions** — pick one from the dropdown to load it, or type a name and
 hit Save to create/overwrite one. Star (☆) a version to make it the
 **default**: what new visitors see and what "Reset to default" restores.
+
+## 3D view
+
+The **🧊 3D View** button opens [first_floor_3d.html](first_floor_3d.html),
+which builds a live Three.js model from your current layout — room floors
+(tinted with each room's color), exterior/interior walls with door gaps,
+glass windows, door leaves, and every furniture piece you placed. It reads the
+layout from `localStorage` (the working autosave, stashed as `layout3d` when
+you click the button), falling back to the shared default via `/kv`. Toggle
+walls (glass / low / off), furniture, labels, and auto-rotate; drag to orbit,
+scroll to zoom, right-drag to pan. Re-open it after editing to see changes.
 
 ## Hosting
 

@@ -35,6 +35,9 @@
   #plan [data-open]{pointer-events:all;cursor:pointer;}
   #plan [data-open].osel{cursor:move;}
   #plan [data-ohandle]{pointer-events:all;cursor:crosshair;}
+  #plan [data-furn]{pointer-events:all;cursor:pointer;}
+  #plan [data-furn].fsel{cursor:move;}
+  #plan [data-frot]{pointer-events:all;cursor:grab;}
   svg#plan.arming{cursor:crosshair;}
   .btn.tool.armed{background:var(--red);border-color:var(--red);color:#fff;}
 
@@ -125,6 +128,7 @@
   <div class="tabs" role="tablist">
     <button id="tab-rooms" role="tab" aria-selected="true">Rooms</button>
     <button id="tab-openings" role="tab" aria-selected="false">Doors / Windows</button>
+    <button id="tab-furniture" role="tab" aria-selected="false">Furniture</button>
     <button id="tab-frame" role="tab" aria-selected="false">Frame</button>
     <button id="tab-plot" role="tab" aria-selected="false">Plot</button>
     <button id="tab-walls" role="tab" aria-selected="false">Walls</button>
@@ -143,6 +147,7 @@
   </div>
 
   <div class="io">
+    <button class="btn" id="view3dbtn">🧊 3D View</button>
     <button class="btn ghost" id="exportbtn">⬇ Export</button>
     <button class="btn ghost" id="importbtn">⬆ Import</button>
     <button class="btn ghost" id="resetbtn">Reset to default</button>
@@ -181,6 +186,22 @@
         <th class="l">Type</th><th>Dir</th><th>X</th><th>Y</th><th>Length</th><th>Flip</th><th></th>
       </tr></thead>
       <tbody id="openlist"></tbody>
+    </table>
+  </div>
+
+  <!-- FURNITURE -->
+  <div class="pane" id="pane-furniture">
+    <div class="addrow">
+      <div class="grp"><label for="furnsel">Furniture</label>
+        <select class="verlist" id="furnsel" style="max-width:200px"></select></div>
+      <button class="btn tool" id="furn-place">＋ Place</button>
+      <span class="hint" id="furnhint">Pick a piece, hit Place, then click the plan to drop it. Tap a piece to select it, then drag to move, use ↻ to rotate, or edit its size below.</span>
+    </div>
+    <table class="rooms" id="furntable">
+      <thead><tr>
+        <th class="l">Piece</th><th>X</th><th>Y</th><th>W</th><th>D</th><th>Rotate</th><th></th>
+      </tr></thead>
+      <tbody id="furnlist"></tbody>
     </table>
   </div>
 
@@ -228,6 +249,35 @@ const NAME=["A","B","C","D","E","F","G","H"];
 const FILL=["#DCE6EC","#E6E1D8","#EBD9CE","#DEE7E0","#E6DCEA","#E0E8E6","#ECE3D2","#DDE2EC"];
 const RC=["#2C5C8A","#7A4E8C","#2F7D54","#B2792A","#A23A5B","#3A7E8C","#8A5A2C","#4A5A8A"];
 
+// Furniture catalog — shared with the 3D view. w = width (x), d = depth (y) in feet; c = 2D fill.
+const FURN={
+  sofa:{lbl:"Sofa",w:7,d:3,c:"#8b93a0"},
+  loveseat:{lbl:"Loveseat",w:5,d:3,c:"#8b93a0"},
+  armchair:{lbl:"Armchair",w:3,d:3,c:"#63788f"},
+  diningtable:{lbl:"Dining table",w:6,d:3.5,c:"#8a6440"},
+  table:{lbl:"Coffee table",w:4,d:2,c:"#8a6440"},
+  desk:{lbl:"Desk",w:5,d:2.5,c:"#8a6440"},
+  chair:{lbl:"Chair",w:1.6,d:1.6,c:"#b98b5e"},
+  stool:{lbl:"Stool",w:1.2,d:1.2,c:"#5f4228"},
+  bed:{lbl:"Bed",w:5,d:6.7,c:"#d6dade"},
+  nightstand:{lbl:"Nightstand",w:1.6,d:1.6,c:"#6f5842"},
+  dresser:{lbl:"Dresser",w:4,d:1.8,c:"#6f5842"},
+  counter:{lbl:"Counter",w:6,d:2,c:"#e6e3dd"},
+  island:{lbl:"Island",w:6,d:3,c:"#e6e3dd"},
+  fridge:{lbl:"Fridge",w:3,d:3,c:"#9aa0a8"},
+  stove:{lbl:"Stove / Range",w:2.6,d:2.4,c:"#ededed"},
+  sink:{lbl:"Sink / Vanity",w:3,d:1.8,c:"#e6e3dd"},
+  toilet:{lbl:"Toilet",w:1.8,d:2.5,c:"#ededed"},
+  tub:{lbl:"Bathtub",w:5,d:2.5,c:"#ededed"},
+  shower:{lbl:"Shower",w:3,d:3,c:"#cfd9e2"},
+  bookshelf:{lbl:"Bookshelf",w:4,d:1,c:"#8a6440"},
+  tv:{lbl:"TV / Media",w:5,d:1.4,c:"#24282e"},
+  plant:{lbl:"Plant",w:1.6,d:1.6,c:"#4f7a48"},
+  washer:{lbl:"Washer / Dryer",w:2.4,d:2.2,c:"#ededed"},
+  rug:{lbl:"Rug",w:8,d:6,c:"#b1493f"},
+};
+const FURN_ORDER=["sofa","loveseat","armchair","diningtable","table","desk","chair","stool","bed","nightstand","dresser","counter","island","fridge","stove","sink","toilet","tub","shower","bookshelf","tv","plant","washer","rug"];
+
 let wings=[
   {w:20.8,d:50,s:0},
   {w:21,d:38,s:0},
@@ -269,11 +319,15 @@ let walls={ext:7,int:4.75};                  // wall thickness in INCHES
 // openings sit on top of the walls. type: 'door' (leaf + swing arc) | 'doorway' (plain gap) | 'window' (glazing).
 // x,y = one end (ft); orient 'h' spans +x, 'v' spans +y; len in ft; flip mirrors a door's swing side.
 let openings=[];
+// furniture: {type, cx, cy (centre, ft), w, d (footprint ft), rot (0/90/180/270)}
+let furniture=[];
 let cur={TW:0,MD:0};
 let drag=null;
 let selected=null;         // index of the currently selected room (must be selected before it can be moved)
 let selectedOpening=null;  // index of the currently selected door/window
-let placeTool=null;        // 'door' | 'doorway' | 'window' while a placement tool is armed
+let selectedFurn=null;     // index of the currently selected furniture piece
+let placeTool=null;        // 'door' | 'doorway' | 'window' while a door/window tool is armed
+let placeFurn=null;        // furniture type string while the furniture tool is armed
 
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const snap=v=>Math.round(v*2)/2;
@@ -289,7 +343,7 @@ function netDims(r){const w=roomWalls(r);const hw=s=>(s?walls.ext:walls.int)/24;
 function roomArea(r){if(r.open)return r.w*r.h;const n=netDims(r);return n.nw*n.nh;}
 
 /* ---------- tabs ---------- */
-const TABS=['rooms','openings','frame','plot','walls'];
+const TABS=['rooms','openings','furniture','frame','plot','walls'];
 function setTab(which){
   TABS.forEach(t=>{
     document.getElementById('tab-'+t).setAttribute('aria-selected',t===which);
@@ -441,7 +495,8 @@ function renderPlan(){
     }
   });
 
-  // doors / windows (drawn over the walls)
+  // furniture, then doors / windows (drawn over the walls)
+  drawFurniture();
   drawOpenings();
 
   // ===== lot lines, dimensions & labels (on top) =====
@@ -577,9 +632,73 @@ function placeOpening(feet){
 function updateToolButtons(){
   [['door','tool-door'],['doorway','tool-doorway'],['window','tool-window']].forEach(([k,id])=>
     document.getElementById(id).classList.toggle('armed',placeTool===k));
-  svg.classList.toggle('arming',!!placeTool);
+  document.getElementById('furn-place').classList.toggle('armed',!!placeFurn);
+  svg.classList.toggle('arming',!!placeTool||!!placeFurn);
 }
-function armTool(type){placeTool=placeTool===type?null:type;updateToolButtons();}
+function armTool(type){placeTool=placeTool===type?null:type;placeFurn=null;updateToolButtons();}
+function armFurn(){placeFurn=placeFurn?null:document.getElementById('furnsel').value;placeTool=null;updateToolButtons();}
+
+/* ---------- furniture (top-down symbols) ---------- */
+function drawFurniture(){
+  furniture.forEach((f,i)=>{
+    const W=f.w*PX,H=f.d*PX,sx=fx(f.cx),sy=fyR(f.cy);
+    const g=el('g',{transform:`translate(${sx} ${sy}) rotate(${f.rot||0})`});
+    furnSymbol(f.type,W,H,g);
+    if(i===selectedFurn){
+      g.appendChild(el('rect',{x:-W/2-2,y:-H/2-2,width:W+4,height:H+4,fill:'none',stroke:'var(--red)','stroke-width':1.5,'stroke-dasharray':'5 3'}));
+      g.appendChild(el('line',{x1:0,y1:-H/2-2,x2:0,y2:-H/2-16,stroke:'var(--red)','stroke-width':1.4}));
+      g.appendChild(el('circle',{cx:0,cy:-H/2-18,r:5,fill:'#fff',stroke:'var(--red)','stroke-width':1.6,'data-furn':i,'data-frot':1}));
+    }
+    const body=el('rect',{x:-W/2,y:-H/2,width:W,height:H,fill:'transparent','data-furn':i});
+    if(i===selectedFurn)body.setAttribute('class','fsel');
+    g.appendChild(body);
+    svg.appendChild(g);
+  });
+}
+function furnSymbol(type,W,H,g){
+  const c=(FURN[type]||{}).c||'#b0b4bb',ink='var(--ink)',hw=W/2,hh=H/2;
+  const A=(tag,at)=>{const e=el(tag,at);g.appendChild(e);return e;};
+  const R=(x,y,w,h,fill,o,rx)=>A('rect',{x,y,width:w,height:h,fill:(fill==null?'none':fill),'fill-opacity':(o==null?1:o),stroke:ink,'stroke-width':1,rx:(rx||0)});
+  const L=(x1,y1,x2,y2)=>A('line',{x1,y1,x2,y2,stroke:ink,'stroke-width':1});
+  const C=(x,y,r,fill)=>A('circle',{cx:x,cy:y,r,fill:(fill==null?'none':fill),stroke:ink,'stroke-width':1});
+  const E=(x,y,rx,ry,fill)=>A('ellipse',{cx:x,cy:y,rx,ry,fill:(fill==null?'none':fill),stroke:ink,'stroke-width':1});
+  const foot=(fill,o,rx)=>R(-hw,-hh,W,H,(fill==null?c:fill),(o==null?.55:o),(rx==null?2:rx));
+  const t=Math.max(2.5,Math.min(W,H)*0.2);
+  switch(type){
+    case'sofa':case'loveseat':foot(c,.5,4);R(-hw,-hh,W,t,c,.95,3);R(-hw,-hh,t,H,c,.95,3);R(hw-t,-hh,t,H,c,.95,3);break;
+    case'armchair':foot(c,.6,5);R(-hw,-hh,W,t,c,1,4);R(-hw,-hh,t,H,c,1,3);R(hw-t,-hh,t,H,c,1,3);break;
+    case'bed':{foot('#eef1f4',.97,3);const pw=(W-9)/2,ph=Math.min(H*0.3,10);
+      R(-hw+3,-hh+3,pw,ph,'#dbe0e6',1,3);R(3,-hh+3,pw,ph,'#dbe0e6',1,3);L(-hw,-hh+ph+6,hw,-hh+ph+6);break;}
+    case'diningtable':case'table':case'desk':{foot(c,.75,3);
+      if(type==='diningtable'){const n=Math.max(2,Math.round(W/24)+1);
+        for(let k=0;k<n;k++){const x=-hw+W*(k+0.5)/n;R(x-5,-hh-8,10,6,'#cdbb95',.9,2);R(x-5,hh+2,10,6,'#cdbb95',.9,2);}}break;}
+    case'chair':foot(c,.85,2);R(-hw,-hh,W,t*0.9,c,1,2);break;
+    case'stool':C(0,0,Math.min(hw,hh)-1,c);break;
+    case'nightstand':foot(c,.9,2);L(-hw+2,0,hw-2,0);break;
+    case'dresser':foot(c,.9,2);L(-hw,-hh+H/3,hw,-hh+H/3);L(-hw,-hh+2*H/3,hw,-hh+2*H/3);break;
+    case'counter':foot(c,.9,1);R(-hw,hh-t*0.7,W,t*0.7,'#cfcabf',1,1);break;
+    case'island':foot(c,.9,2);E(hw*0.4,0,Math.min(6,W*0.12),Math.min(4,H*0.22),'#cfd9e2');break;
+    case'fridge':foot(c,.95,2);L(0,-hh,0,hh);L(-4,-hh+H*0.3,-4,-hh+H*0.5);break;
+    case'stove':{foot(c,.95,2);const bx=W*0.22,by=H*0.22,br=Math.min(hw,hh)*0.28;[[-bx,-by],[bx,-by],[-bx,by],[bx,by]].forEach(p=>C(p[0],p[1],br,'#c9c9c9'));break;}
+    case'sink':foot(c,.95,2);E(0,1,W*0.32,H*0.3,'#cfd9e2');C(0,-hh+3,1.6,ink);break;
+    case'toilet':R(-W*0.3,-hh,W*0.6,H*0.32,'#ededed',1,2);E(0,hh-H*0.3,W*0.32,H*0.28,'#ededed');break;
+    case'tub':foot('#ededed',1,6);E(0,0,hw-3,hh-3,'#dbe4ec');break;
+    case'shower':foot('#e3edf3',.95,2);C(0,0,2,ink);L(-hw,-hh,hw,hh);L(-hw,hh,hw,-hh);break;
+    case'bookshelf':{foot(c,.95,1);const n=Math.max(2,Math.round(W/12));for(let k=1;k<n;k++)L(-hw+W*k/n,-hh,-hw+W*k/n,hh);break;}
+    case'tv':foot('#24282e',.95,1);break;
+    case'plant':C(0,0,Math.min(hw,hh)-1,'#8a5a3c');C(0,0,Math.min(hw,hh)*0.7,'#4f7a48');break;
+    case'washer':foot('#ededed',1,2);C(0,0,Math.min(hw,hh)*0.55,'#cfd9e2');break;
+    case'rug':foot(c,.2,3).setAttribute('stroke-dasharray','5 3');break;
+    default:foot(c,.6,2);
+  }
+}
+function placeFurnItem(feet){
+  const type=placeFurn,cat=FURN[type]||{w:3,d:3};
+  furniture.push({type,cx:snap(feet.x),cy:snap(feet.r),w:cat.w||3,d:cat.d||3,rot:0});
+  selectedFurn=furniture.length-1;selected=null;selectedOpening=null;
+  placeFurn=null;updateToolButtons();
+  renderFurniture();renderPlan();scheduleSave();
+}
 
 /* ---------- pinch-zoom / pan / drag ---------- */
 const wrap=document.getElementById('planwrap');
@@ -612,6 +731,7 @@ svg.addEventListener('pointerdown',e=>{
     gMoved=true;
     if(drag){
       if(drag.kind==='opening')Object.assign(openings[drag.idx],drag.o);
+      else if(drag.kind==='furn')Object.assign(furniture[drag.idx],drag.o);
       else{const o=drag.o,r=rooms[drag.idx];r.x=o.x;r.y=o.y;r.w=o.w;r.h=o.h;}
       drag=null;renderPlan();
     }
@@ -621,12 +741,31 @@ svg.addEventListener('pointerdown',e=>{
     e.preventDefault();return;
   }
   gDownT=Date.now();gDownX=e.clientX;gDownY=e.clientY;gMoved=false;
-  if(placeTool){                                    // armed tool → click a wall to place, then disengage
+  if(placeFurn){                                    // armed furniture tool → click to drop, then disengage
+    placeFurnItem(feetFromEvent(e));
+    try{svg.setPointerCapture(e.pointerId);}catch(_){}
+    e.preventDefault();return;
+  }
+  if(placeTool){                                    // armed door/window tool → click a wall to place, then disengage
     placeOpening(feetFromEvent(e));
     try{svg.setPointerCapture(e.pointerId);}catch(_){}
     e.preventDefault();return;
   }
   const t=e.target;
+  const fi=t.getAttribute('data-furn');
+  if(fi!=null){                                     // furniture: rotate handle, else select then move
+    const idx=+fi;
+    if(t.getAttribute('data-frot')!=null){          // rotate 90° (handle only shown when selected)
+      furniture[idx].rot=((furniture[idx].rot||0)+90)%360;renderFurniture();renderPlan();scheduleSave();
+    }else if(idx===selectedFurn){                   // already selected → drag to move
+      const p=feetFromEvent(e);
+      drag={kind:'furn',idx,sx:p.x,sr:p.r,o:Object.assign({},furniture[idx])};
+    }else{                                           // first tap selects
+      selectedFurn=idx;selected=null;selectedOpening=null;renderPlan();
+    }
+    try{svg.setPointerCapture(e.pointerId);}catch(_){}
+    e.preventDefault();return;
+  }
   const oi=t.getAttribute('data-open');
   if(oi!=null){                                     // door/window: select first, then move/resize (like rooms)
     const idx=+oi,h=t.getAttribute('data-ohandle');
@@ -637,7 +776,7 @@ svg.addEventListener('pointerdown',e=>{
       const p=feetFromEvent(e);
       drag={kind:'opening',idx,ohandle:null,sx:p.x,sr:p.r,o:Object.assign({},openings[idx])};
     }else{                                           // first tap just selects
-      selectedOpening=idx;selected=null;renderPlan();
+      selectedOpening=idx;selected=null;selectedFurn=null;renderPlan();
     }
     try{svg.setPointerCapture(e.pointerId);}catch(_){}
     e.preventDefault();return;
@@ -645,7 +784,7 @@ svg.addEventListener('pointerdown',e=>{
   const ri=t.getAttribute('data-room');
   if(ri!=null){
     const idx=+ri,corner=t.getAttribute('data-corner');
-    if(selectedOpening!=null)selectedOpening=null;   // selecting a room clears any opening selection
+    if(selectedOpening!=null||selectedFurn!=null){selectedOpening=null;selectedFurn=null;}  // selecting a room clears other selections
     if(corner){                                     // resize handle (only rendered on the selected room)
       const p=feetFromEvent(e);
       drag={kind:'room',type:'resize',idx,corner,sx:p.x,sr:p.r,o:Object.assign({},rooms[idx])};
@@ -656,7 +795,7 @@ svg.addEventListener('pointerdown',e=>{
       selected=idx;renderPlan();
     }
   }else{
-    if(selected!=null||selectedOpening!=null){selected=null;selectedOpening=null;renderPlan();}  // tap empty → deselect
+    if(selected!=null||selectedOpening!=null||selectedFurn!=null){selected=null;selectedOpening=null;selectedFurn=null;renderPlan();}  // tap empty → deselect
     if(view.scale>1){
       panP={id:e.pointerId,sx:e.clientX,sy:e.clientY,otx:view.tx,oty:view.ty};
     }
@@ -687,6 +826,11 @@ svg.addEventListener('pointermove',e=>{
   if(!drag)return;
   gMoved=true;
   const p=feetFromEvent(e),dx=p.x-drag.sx,dr=p.r-drag.sr;
+  if(drag.kind==='furn'){
+    const fitem=furniture[drag.idx],so=drag.o;
+    fitem.cx=snap(so.cx+dx);fitem.cy=snap(so.cy+dr);
+    renderPlan();return;
+  }
   if(drag.kind==='opening'){
     const op=openings[drag.idx],so=drag.o;
     if(!drag.ohandle){                                                 // move — snap the opening's centre to the nearest wall
@@ -723,7 +867,7 @@ function endPointer(e){
   pointers.delete(e.pointerId);
   if(pointers.size<2)pinch=null;
   if(panP&&e.pointerId===panP.id)panP=null;
-  if(drag){const wasOpening=drag.kind==='opening';drag=null;renderList();if(wasOpening)renderOpenings();scheduleSave();}
+  if(drag){const k=drag.kind;drag=null;renderList();if(k==='opening')renderOpenings();if(k==='furn')renderFurniture();scheduleSave();}
   if(pointers.size===0&&!gMoved&&Date.now()-gDownT<300){   // double-tap empty/room → reset zoom
     if(Date.now()-lastTapT<300&&Math.hypot(e.clientX-lastTapX,e.clientY-lastTapY)<30){resetView();lastTapT=0;}
     else{lastTapT=Date.now();lastTapX=e.clientX;lastTapY=e.clientY;}
@@ -732,8 +876,13 @@ function endPointer(e){
 svg.addEventListener('pointerup',endPointer);
 svg.addEventListener('pointercancel',endPointer);
 document.addEventListener('keydown',e=>{
+  if(e.key==='r'||e.key==='R'){                    // rotate the selected furniture 90°
+    if(selectedFurn!=null){furniture[selectedFurn].rot=((furniture[selectedFurn].rot||0)+90)%360;renderFurniture();renderPlan();scheduleSave();}
+    return;
+  }
   if(e.key!=='Escape')return;
-  if(placeTool){placeTool=null;updateToolButtons();}
+  if(placeTool||placeFurn){placeTool=null;placeFurn=null;updateToolButtons();}
+  else if(selectedFurn!=null){selectedFurn=null;renderPlan();}
   else if(selectedOpening!=null){selectedOpening=null;renderPlan();}
   else if(selected!=null){selected=null;renderPlan();}
 });
@@ -838,6 +987,33 @@ document.getElementById('tool-door').onclick=()=>armTool('door');
 document.getElementById('tool-doorway').onclick=()=>armTool('doorway');
 document.getElementById('tool-window').onclick=()=>armTool('window');
 
+/* ---------- furniture editor ---------- */
+const flist=document.getElementById('furnlist'),furnSel=document.getElementById('furnsel');
+furnSel.innerHTML=FURN_ORDER.map(t=>`<option value="${t}">${FURN[t].lbl}</option>`).join('');
+function renderFurniture(){
+  if(!furniture.length){flist.innerHTML='<tr><td colspan="7" class="empty">No furniture yet — pick a piece, hit Place, then click the plan.</td></tr>';return;}
+  flist.innerHTML=furniture.map((f,i)=>`<tr>
+    <td class="l"><span class="sw" style="background:${(FURN[f.type]||{}).c||'#aaa'}"></span>${(FURN[f.type]||{lbl:f.type}).lbl}</td>
+    <td><input class="num" data-fi="${i}" data-fk="cx" type="number" step="0.5" value="${fmt(f.cx)}"></td>
+    <td><input class="num" data-fi="${i}" data-fk="cy" type="number" step="0.5" value="${fmt(f.cy)}"></td>
+    <td><input class="num" data-fi="${i}" data-fk="w" type="number" min="0.5" step="0.5" value="${fmt(f.w)}"></td>
+    <td><input class="num" data-fi="${i}" data-fk="d" type="number" min="0.5" step="0.5" value="${fmt(f.d)}"></td>
+    <td style="text-align:center"><button class="del" data-frotbtn="${i}" title="Rotate 90°" style="color:var(--ink)">↻</button> <span style="color:var(--ink-soft);font-size:11px">${f.rot||0}°</span></td>
+    <td><button class="del" data-fdel="${i}" title="Delete">✕</button></td>
+  </tr>`).join('');
+}
+flist.addEventListener('input',e=>{
+  const i=e.target.dataset.fi,k=e.target.dataset.fk;if(i==null)return;
+  const v=parseFloat(e.target.value);if(!isNaN(v))furniture[i][k]=(k==='w'||k==='d')?Math.max(0.5,v):v;
+  renderPlan();scheduleSave();
+});
+flist.addEventListener('click',e=>{
+  const del=e.target.dataset.fdel,rot=e.target.dataset.frotbtn;
+  if(del!=null){furniture.splice(+del,1);selectedFurn=null;renderFurniture();renderPlan();scheduleSave();}
+  else if(rot!=null){furniture[+rot].rot=((furniture[+rot].rot||0)+90)%360;renderFurniture();renderPlan();scheduleSave();}
+});
+document.getElementById('furn-place').onclick=armFurn;
+
 /* ---------- export / import / save ---------- */
 // Prefer the host-provided storage API; otherwise fall back to the browser's
 // own memory (localStorage) so Save still persists in a normal browser.
@@ -872,7 +1048,7 @@ const KEY='savedLayout';
 const DEFAULT_NAME_KEY='defaultVersionName';
 const SEED_NAME='Original';                       // built-in layout, seeded as the shared default on first run
 const LOCAL_OPT='__local-auto-save__';            // reserved picker value for this browser's autosave
-const DEFAULTS={plot:JSON.parse(JSON.stringify(plot)),walls:JSON.parse(JSON.stringify(walls)),wings:JSON.parse(JSON.stringify(wings)),rooms:JSON.parse(JSON.stringify(rooms)),openings:JSON.parse(JSON.stringify(openings))};
+const DEFAULTS={plot:JSON.parse(JSON.stringify(plot)),walls:JSON.parse(JSON.stringify(walls)),wings:JSON.parse(JSON.stringify(wings)),rooms:JSON.parse(JSON.stringify(rooms)),openings:JSON.parse(JSON.stringify(openings)),furniture:JSON.parse(JSON.stringify(furniture))};
 let ready=false,saveTimer=null,defaultName=null,localDraftExists=false;
 
 function ioStatus(msg,err){const s=document.getElementById('iostatus');s.textContent=msg;s.style.color=err?'var(--red)':'var(--green)';}
@@ -892,14 +1068,17 @@ function applyData(d){
     type:OTYPES.includes(o.type)?o.type:'door',
     orient:o.orient==='v'?'v':'h',
     x:+o.x||0,y:+o.y||0,len:Math.max(0.5,+o.len||3),flip:!!o.flip})):[];
-  selected=null;selectedOpening=null;
-  buildPlotPanel();buildWallsPanel();buildFramePanel();renderPlan();renderList();renderOpenings();
+  furniture=Array.isArray(d.furniture)?d.furniture.map(f=>{const cat=FURN[f.type]||{w:3,d:3};
+    return {type:FURN[f.type]?f.type:'table',cx:+f.cx||0,cy:+f.cy||0,
+      w:Math.max(0.5,+f.w||cat.w),d:Math.max(0.5,+f.d||cat.d),rot:((+f.rot||0)%360+360)%360};}):[];
+  selected=null;selectedOpening=null;selectedFurn=null;
+  buildPlotPanel();buildWallsPanel();buildFramePanel();renderPlan();renderList();renderOpenings();renderFurniture();
 }
 
 async function saveLayout(manual){
   if(!STORE){if(manual)ioStatus("In-app save isn't available here — use Export instead",true);return;}
   try{
-    await STORE.set(KEY,JSON.stringify({plot,walls,wings,rooms,openings,savedAt:new Date().toISOString()}),false);
+    await STORE.set(KEY,JSON.stringify({plot,walls,wings,rooms,openings,furniture,savedAt:new Date().toISOString()}),false);
     if(!localDraftExists){localDraftExists=true;refreshVersions();}   // surface the local-auto-save entry the first time
     ioStatus("Auto-saved ✓");
   }
@@ -920,9 +1099,10 @@ async function putDefaultName(name){
 }
 async function loadSaved(){
   defaultName=await getDefaultName();
-  // note (don't load) this browser's autosave — it's offered in the picker, never auto-applied over the default
+  // this browser's autosave (your in-progress edits)
+  let local=null;
   if(STORE){
-    try{const res=await STORE.get(KEY,false);localDraftExists=!!(res&&res.value);}catch(e){}
+    try{const res=await STORE.get(KEY,false);if(res&&res.value){local=JSON.parse(res.value);localDraftExists=true;}}catch(e){}
   }
   // first run against an empty shared store: seed the built-in layout as the shared default until someone changes it
   if(SHARED&&!defaultName){
@@ -934,12 +1114,14 @@ async function loadSaved(){
       }
     }catch(e){/* keep the built-in already on screen */}
   }
-  // load the shared default (falls back to the built-in already rendered if the store is unreachable)
-  if(defaultName){
-    try{const obj=await getVersions();
-      if(obj[defaultName]){applyData(obj[defaultName]);ioStatus(`Loaded default (“${defaultName}”)`);}
-    }catch(e){/* keep the built-in already on screen */}
-  }
+  // fetch the shared default
+  let def=null;
+  if(defaultName){try{const obj=await getVersions();if(obj[defaultName])def=obj[defaultName];}catch(e){}}
+  // load the NEWER of (your local autosave, the shared default). your recent edits persist across
+  // reloads / 3D round-trips; a genuinely newer shared default still wins for a fresh visitor.
+  const stamp=o=>(o&&o.savedAt)?(Date.parse(o.savedAt)||0):0;
+  if(local&&stamp(local)>=stamp(def)){applyData(local);ioStatus("Loaded your latest edits");}
+  else if(def){applyData(def);ioStatus(`Loaded default (“${defaultName}”)`);}
   ready=true;
 }
 async function resetToDefault(){
@@ -954,7 +1136,9 @@ async function resetToDefault(){
     wings=JSON.parse(JSON.stringify(DEFAULTS.wings));
     rooms=JSON.parse(JSON.stringify(DEFAULTS.rooms));
     openings=JSON.parse(JSON.stringify(DEFAULTS.openings));
-    buildPlotPanel();buildWallsPanel();buildFramePanel();renderPlan();renderList();renderOpenings();
+    furniture=JSON.parse(JSON.stringify(DEFAULTS.furniture));
+    selectedFurn=null;
+    buildPlotPanel();buildWallsPanel();buildFramePanel();renderPlan();renderList();renderOpenings();renderFurniture();
     ioStatus("Reset to the built-in default");
   }
   scheduleSave();
@@ -966,7 +1150,8 @@ function exportJSON(){
     walls:{ext:walls.ext,int:walls.int},
     wings:wings.map(s=>({w:s.w,d:s.d,s:s.s})),
     rooms:rooms.map(r=>({name:r.name,desired:r.desired,x:r.x,y:r.y,w:r.w,h:r.h,color:r.color,open:!!r.open})),
-    openings:openings.map(o=>({type:o.type,orient:o.orient,x:o.x,y:o.y,len:o.len,flip:!!o.flip}))};
+    openings:openings.map(o=>({type:o.type,orient:o.orient,x:o.x,y:o.y,len:o.len,flip:!!o.flip})),
+    furniture:furniture.map(f=>({type:f.type,cx:f.cx,cy:f.cy,w:f.w,d:f.d,rot:f.rot||0}))};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
   const url=URL.createObjectURL(blob);const a=document.createElement('a');
   a.href=url;a.download=`floor-plan-${new Date().toISOString().slice(0,10)}.json`;
@@ -985,6 +1170,12 @@ function importJSON(file){
   reader.readAsText(file);
 }
 
+document.getElementById('view3dbtn').onclick=async()=>{
+  // stash the live layout where the 3D view can read it, then open the 3D
+  try{localStorage.setItem('layout3d',JSON.stringify(snapshot()));}catch(e){}
+  await saveLayout(false);
+  window.open('first_floor_3d.html','_blank');
+};
 document.getElementById('resetbtn').onclick=resetToDefault;
 document.getElementById('exportbtn').onclick=exportJSON;
 document.getElementById('importbtn').onclick=()=>document.getElementById('importfile').click();
@@ -1003,7 +1194,7 @@ async function putVersions(obj){
   if(!SHARED)return false;
   try{await SHARED.set(VKEY,JSON.stringify(obj),false);return true;}catch(e){return false;}
 }
-function snapshot(){return {plot,walls,wings,rooms,openings,savedAt:new Date().toISOString()};}
+function snapshot(){return {plot,walls,wings,rooms,openings,furniture,savedAt:new Date().toISOString()};}
 const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 function updateStarState(){
   const name=document.getElementById('vername').value.trim();
@@ -1088,7 +1279,7 @@ document.getElementById('verlist').addEventListener('change',e=>{
 });
 document.getElementById('vername').addEventListener('input',updateStarState);
 
-renderPlan();renderList();renderOpenings();
+renderPlan();renderList();renderOpenings();renderFurniture();
 (async()=>{await loadSaved();await refreshVersions();})();
 </script>
 </body>
