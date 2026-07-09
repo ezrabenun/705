@@ -38,6 +38,7 @@
   #plan [data-furn]{pointer-events:all;cursor:pointer;}
   #plan [data-furn].fsel{cursor:move;}
   #plan [data-frot]{pointer-events:all;cursor:grab;}
+  #plan [data-fresize]{pointer-events:all;cursor:nwse-resize;}
   svg#plan.arming{cursor:crosshair;}
   .btn.tool.armed{background:var(--red);border-color:var(--red);color:#fff;}
   .ctxmenu{position:fixed;z-index:1000;background:#fff;border:1px solid var(--line);border-radius:8px;
@@ -204,7 +205,7 @@
       <div class="grp"><label for="furnsel">Furniture</label>
         <select class="verlist" id="furnsel" style="max-width:200px"></select></div>
       <button class="btn tool" id="furn-place">＋ Place</button>
-      <span class="hint" id="furnhint">Tip: <b>right-click</b> (or <b>press &amp; hold</b> on touch) the plan to add furniture (or rotate/delete a piece) right where you tap. Or pick a piece here and hit Place. Tap a piece to move it; edit its size below.</span>
+      <span class="hint" id="furnhint">Tip: <b>right-click</b> (or <b>press &amp; hold</b> on touch) the plan to add furniture (or rotate/delete a piece) right where you tap. Or pick a piece here and hit Place. Tap a piece to move it, drag a corner to resize, ↻ to rotate; or edit its size below.</span>
     </div>
     <table class="rooms" id="furntable">
       <thead><tr>
@@ -655,14 +656,17 @@ function drawFurniture(){
     const W=f.w*PX,H=f.d*PX,sx=fx(f.cx),sy=fyR(f.cy);
     const g=el('g',{transform:`translate(${sx} ${sy}) rotate(${f.rot||0})`});
     furnSymbol(f.type,W,H,g);
+    // move-body first (so the resize/rotate handles below sit on top of it and win the click)
+    const body=el('rect',{x:-W/2,y:-H/2,width:W,height:H,fill:'transparent','data-furn':i});
+    if(i===selectedFurn)body.setAttribute('class','fsel');
+    g.appendChild(body);
     if(i===selectedFurn){
       g.appendChild(el('rect',{x:-W/2-2,y:-H/2-2,width:W+4,height:H+4,fill:'none',stroke:'var(--red)','stroke-width':1.5,'stroke-dasharray':'5 3'}));
       g.appendChild(el('line',{x1:0,y1:-H/2-2,x2:0,y2:-H/2-16,stroke:'var(--red)','stroke-width':1.4}));
       g.appendChild(el('circle',{cx:0,cy:-H/2-18,r:5,fill:'#fff',stroke:'var(--red)','stroke-width':1.6,'data-furn':i,'data-frot':1}));
+      [[-1,-1],[1,-1],[-1,1],[1,1]].forEach(([qx,qy])=>                 // corner resize handles
+        g.appendChild(el('rect',{x:qx*W/2-4,y:qy*H/2-4,width:8,height:8,fill:'#fff',stroke:'var(--red)','stroke-width':1.4,'data-furn':i,'data-fresize':1})));
     }
-    const body=el('rect',{x:-W/2,y:-H/2,width:W,height:H,fill:'transparent','data-furn':i});
-    if(i===selectedFurn)body.setAttribute('class','fsel');
-    g.appendChild(body);
     svg.appendChild(g);
   });
 }
@@ -783,13 +787,16 @@ svg.addEventListener('pointerdown',e=>{
   }
   const t=e.target;
   const fi=t.getAttribute('data-furn');
-  if(fi!=null){                                     // furniture: rotate handle, else select then move
+  if(fi!=null){                                     // furniture: rotate/resize handles, else select then move
     const idx=+fi;
     if(t.getAttribute('data-frot')!=null){          // rotate 90° (handle only shown when selected)
       furniture[idx].rot=((furniture[idx].rot||0)+90)%360;renderFurniture();renderPlan();scheduleSave();
+    }else if(t.getAttribute('data-fresize')!=null&&idx===selectedFurn){   // corner → resize
+      const p=feetFromEvent(e);
+      drag={kind:'furn',mode:'resize',idx,sx:p.x,sr:p.r,o:Object.assign({},furniture[idx])};
     }else if(idx===selectedFurn){                   // already selected → drag to move
       const p=feetFromEvent(e);
-      drag={kind:'furn',idx,sx:p.x,sr:p.r,o:Object.assign({},furniture[idx])};
+      drag={kind:'furn',mode:'move',idx,sx:p.x,sr:p.r,o:Object.assign({},furniture[idx])};
     }else{                                           // first tap selects
       selectedFurn=idx;selected=null;selectedOpening=null;renderPlan();
     }
@@ -859,7 +866,16 @@ svg.addEventListener('pointermove',e=>{
   const p=feetFromEvent(e),dx=p.x-drag.sx,dr=p.r-drag.sr;
   if(drag.kind==='furn'){
     const fitem=furniture[drag.idx],so=drag.o;
-    fitem.cx=snap(so.cx+dx);fitem.cy=snap(so.cy+dr);
+    if(drag.mode==='resize'){
+      // project the pointer into the piece's rotated local frame; resize symmetrically about its centre
+      const soX=(p.x-so.cx)*PX, soY=-(p.r-so.cy)*PX, rad=(so.rot||0)*Math.PI/180;
+      const lx=soX*Math.cos(rad)+soY*Math.sin(rad), ly=-soX*Math.sin(rad)+soY*Math.cos(rad);
+      fitem.w=Math.max(0.5,snap(2*Math.abs(lx)/PX));
+      fitem.d=Math.max(0.5,snap(2*Math.abs(ly)/PX));
+      fitem.cx=so.cx;fitem.cy=so.cy;
+    }else{
+      fitem.cx=snap(so.cx+dx);fitem.cy=snap(so.cy+dr);
+    }
     renderPlan();return;
   }
   if(drag.kind==='opening'){
