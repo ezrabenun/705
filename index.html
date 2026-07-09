@@ -1171,10 +1171,10 @@ function importJSON(file){
 }
 
 document.getElementById('view3dbtn').onclick=async()=>{
-  // stash the live layout where the 3D view can read it, then open the 3D
+  // stash the live layout where the 3D view can read it, then switch to the 3D in this same tab
   try{localStorage.setItem('layout3d',JSON.stringify(snapshot()));}catch(e){}
   await saveLayout(false);
-  window.open('first_floor_3d.html','_blank');
+  window.location.href='first_floor_3d.html';
 };
 document.getElementById('resetbtn').onclick=resetToDefault;
 document.getElementById('exportbtn').onclick=exportJSON;
