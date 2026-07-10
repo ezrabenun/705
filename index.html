@@ -686,22 +686,15 @@ function renderPlan(){
     const bb=roomBBox(r), pxW=bb.w*PX, pxH=bb.h*PX, lineH=13;
     const maxLines=Math.max(1,Math.floor((pxH-2)/lineH));
     const essential=[{c:'rmname',t:r.name}], optional=[];
-    let cx,cy;
-    if(r.poly){                                    // shaped room: name + area at the polygon's centre (no W×D)
-      const c=polyCentroid(r.poly);cx=fx(c[0]);cy=fyR(c[1]);
-      const a=roomArea(r),di=deltaInfo(a,r.desired);
-      essential.push({c:'rmsf',t:fmt(Math.round(a))+" sf"});
-      if(di.show)optional.push({c:'rmdelta',t:di.t,fill:di.c});
-    }else{
-      cx=fx(r.x+r.w/2);cy=fyR(r.y+r.h/2);
-      const nd=netDims(r), a=r.open?r.w*r.h:nd.nw*nd.nh, di=deltaInfo(a,r.desired);
-      const dimW=r.open?ft(r.w):ftIn(nd.nw), dimD=r.open?ft(r.h):ftIn(nd.nh), oneLine=dimW+"×"+dimD;
-      const wide=oneLine.length*6.6+4<=pxW;
-      if(wide)essential.push({c:'rmdim',t:oneLine});
-      else{essential.push({c:'rmdim',t:dimW+"×"});essential.push({c:'rmdim',t:dimD});}
-      if(di.show)optional.push({c:'rmdelta',t:di.t,fill:di.c});
-      if(wide)optional.push({c:'rmsf',t:fmt(Math.round(a*10)/10)+" sf"});
-    }
+    const c=r.poly?polyCentroid(r.poly):[r.x+r.w/2,r.y+r.h/2], cx=fx(c[0]), cy=fyR(c[1]);
+    const nd=netDims(r), a=roomArea(r), di=deltaInfo(a,r.desired);
+    // dimensions: open rooms show gross, everyone else shows net (inner) bbox dims; poly rooms' extent is their bbox
+    const dimW=r.open?ft(bb.w):ftIn(nd.nw), dimD=r.open?ft(bb.h):ftIn(nd.nh), oneLine=dimW+"×"+dimD;
+    const wide=oneLine.length*6.6+4<=pxW;
+    if(wide)essential.push({c:'rmdim',t:oneLine});
+    else{essential.push({c:'rmdim',t:dimW+"×"});essential.push({c:'rmdim',t:dimD});}
+    if(di.show)optional.push({c:'rmdelta',t:di.t,fill:di.c});
+    if(wide)optional.push({c:'rmsf',t:fmt(Math.round(a*10)/10)+" sf"});
     const show=essential.slice();
     for(const o of optional)if(show.length<maxLines)show.push(o);
     show.forEach((ln,k)=>{
