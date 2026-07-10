@@ -890,10 +890,11 @@ function deltaInfo(area,des){
 /* ---------- doors / windows ---------- */
 const WINCOL='#3F6EA5';
 function drawOpenings(){
-  const extPx=Math.max(1.5,walls.ext/12*PX);
-  const hd=extPx/2;                               // half-depth (px): match the exterior wall thickness
-  const eh=hd+0.75;                               // erase a hair wider so no wall sliver bleeds through
   openings.forEach((o,i)=>{
+    // size the opening band to the wall it sits on — interior walls are thinner than the exterior
+    const wt=o.orient==='v'?wallThickOnSide('v',o.x,o.y,o.y+o.len):wallThickOnSide('h',o.y,o.x,o.x+o.len);
+    const hd=Math.max(1.5,(wt||walls.ext)/12*PX)/2;   // half-depth (px)
+    const eh=hd+0.75;                                 // erase a hair wider so no wall sliver bleeds through
     const horiz=o.orient!=='v';
     const ax=fx(o.x), ay=fyR(o.y);
     const bx=horiz?fx(o.x+o.len):fx(o.x), by=horiz?fyR(o.y):fyR(o.y+o.len);
