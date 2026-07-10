@@ -472,9 +472,25 @@ function renderPlan(){
   // exterior wall shell (along footprint outline)
   svg.appendChild(el('path',{d:"M "+pts.map(p=>fx(p[0])+" "+fyR(p[1])).join(" L ")+" Z",
     fill:'none',stroke:'var(--ink)','stroke-width':Math.max(1.5,walls.ext/12*PX),'stroke-linejoin':'miter'}));
-  // rooms — pass 3: labels + handles
+  // rooms — pass 3: selection outline + resize handles (only the selected room can be moved/resized)
   rooms.forEach((r,i)=>{
+    if(i!==selected)return;
     const col=r.color, pxW=r.w*PX, pxH=r.h*PX;
+    svg.appendChild(el('rect',{x:fx(r.x),y:fyR(r.y+r.h),width:pxW,height:pxH,
+      fill:'none',stroke:col,'stroke-width':2,'stroke-dasharray':'5 3'}));
+    [['fl',r.x,r.y],['fr',r.x+r.w,r.y],['bl',r.x,r.y+r.h],['br',r.x+r.w,r.y+r.h]].forEach(([c,hx,hr])=>{
+      svg.appendChild(el('rect',{x:fx(hx)-4,y:fyR(hr)-4,width:8,height:8,fill:'#fff',stroke:col,'stroke-width':1.5,
+        'data-room':i,'data-corner':c}));
+    });
+  });
+
+  // furniture, then doors / windows (drawn over the walls)
+  drawFurniture();
+  drawOpenings();
+
+  // rooms — pass 4: name + dimension labels, drawn LAST so they sit on top of furniture & openings
+  rooms.forEach((r)=>{
+    const pxW=r.w*PX, pxH=r.h*PX;
     const cx=fx(r.x+r.w/2), cy=fyR(r.y+r.h/2);
     const nd=netDims(r);
     const a=r.open?r.w*r.h:nd.nw*nd.nh;
@@ -484,32 +500,21 @@ function renderPlan(){
     const wide=oneLine.length*6.6+4<=pxW;                                                 // room fits the whole dim on one line
     const lineH=13;
     const maxLines=Math.max(1,Math.floor((pxH-2)/lineH));
-    const cand=[{c:'rmname',t:r.name}];
-    if(wide)cand.push({c:'rmdim',t:oneLine});
-    else{cand.push({c:'rmdim',t:dimW+"×"});cand.push({c:'rmdim',t:dimD});}                // too narrow — always wrap after the ×
-    if(di.show)cand.push({c:'rmdelta',t:di.t,fill:di.c});
-    if(wide)cand.push({c:'rmsf',t:fmt(Math.round(a*10)/10)+" sf"});                       // sf is secondary — only when dims fit on one line
-    const nShow=Math.max(1,Math.min(cand.length,maxLines));
-    const show=cand.slice(0,nShow);
+    // name + dimensions always show (even if they overflow a tiny room); delta & sf only when there's room
+    const essential=[{c:'rmname',t:r.name}];
+    if(wide)essential.push({c:'rmdim',t:oneLine});
+    else{essential.push({c:'rmdim',t:dimW+"×"});essential.push({c:'rmdim',t:dimD});}      // too narrow — always wrap after the ×
+    const optional=[];
+    if(di.show)optional.push({c:'rmdelta',t:di.t,fill:di.c});
+    if(wide)optional.push({c:'rmsf',t:fmt(Math.round(a*10)/10)+" sf"});                    // sf is secondary — only when dims fit on one line
+    const show=essential.slice();
+    for(const o of optional)if(show.length<maxLines)show.push(o);
     show.forEach((ln,k)=>{
       const t=txt(cx, cy+(k-(show.length-1)/2)*lineH+4, ln.c, ln.t);
       if(ln.fill)t.setAttribute('fill',ln.fill);
       svg.appendChild(t);
     });
-    if(i===selected){
-      // selection outline + resize handles (only the selected room can be moved/resized)
-      svg.appendChild(el('rect',{x:fx(r.x),y:fyR(r.y+r.h),width:pxW,height:pxH,
-        fill:'none',stroke:col,'stroke-width':2,'stroke-dasharray':'5 3'}));
-      [['fl',r.x,r.y],['fr',r.x+r.w,r.y],['bl',r.x,r.y+r.h],['br',r.x+r.w,r.y+r.h]].forEach(([c,hx,hr])=>{
-        svg.appendChild(el('rect',{x:fx(hx)-4,y:fyR(hr)-4,width:8,height:8,fill:'#fff',stroke:col,'stroke-width':1.5,
-          'data-room':i,'data-corner':c}));
-      });
-    }
   });
-
-  // furniture, then doors / windows (drawn over the walls)
-  drawFurniture();
-  drawOpenings();
 
   // ===== lot lines, dimensions & labels (on top) =====
   const pcol='#5E6B3A';
@@ -569,32 +574,36 @@ function deltaInfo(area,des){
 const WINCOL='#3F6EA5';
 function drawOpenings(){
   const extPx=Math.max(1.5,walls.ext/12*PX);
-  const hd=Math.max(5,extPx/2+3);                 // half-depth (px) of the band that "cuts" the wall
+  const hd=extPx/2;                               // half-depth (px): match the exterior wall thickness
+  const eh=hd+0.75;                               // erase a hair wider so no wall sliver bleeds through
   openings.forEach((o,i)=>{
     const horiz=o.orient!=='v';
     const ax=fx(o.x), ay=fyR(o.y);
     const bx=horiz?fx(o.x+o.len):fx(o.x), by=horiz?fyR(o.y):fyR(o.y+o.len);
     // erase the wall beneath so the opening reads as a gap
-    if(horiz)svg.appendChild(el('rect',{x:Math.min(ax,bx),y:ay-hd,width:Math.abs(bx-ax),height:2*hd,fill:'var(--paper)'}));
-    else     svg.appendChild(el('rect',{x:ax-hd,y:Math.min(ay,by),width:2*hd,height:Math.abs(by-ay),fill:'var(--paper)'}));
+    if(horiz)svg.appendChild(el('rect',{x:Math.min(ax,bx),y:ay-eh,width:Math.abs(bx-ax),height:2*eh,fill:'var(--paper)'}));
+    else     svg.appendChild(el('rect',{x:ax-eh,y:Math.min(ay,by),width:2*eh,height:Math.abs(by-ay),fill:'var(--paper)'}));
     const jamb=(px,py)=>{
       if(horiz)svg.appendChild(el('line',{x1:px,y1:py-hd,x2:px,y2:py+hd,stroke:'var(--ink)','stroke-width':1.5}));
       else     svg.appendChild(el('line',{x1:px-hd,y1:py,x2:px+hd,y2:py,stroke:'var(--ink)','stroke-width':1.5}));
     };
     if(o.type==='window'){
-      if(horiz)svg.appendChild(el('rect',{x:Math.min(ax,bx),y:ay-hd*0.7,width:Math.abs(bx-ax),height:2*hd*0.7,fill:'rgba(63,110,165,.14)',stroke:WINCOL,'stroke-width':1.2}));
-      else     svg.appendChild(el('rect',{x:ax-hd*0.7,y:Math.min(ay,by),width:2*hd*0.7,height:Math.abs(by-ay),fill:'rgba(63,110,165,.14)',stroke:WINCOL,'stroke-width':1.2}));
+      if(horiz)svg.appendChild(el('rect',{x:Math.min(ax,bx),y:ay-hd,width:Math.abs(bx-ax),height:2*hd,fill:'rgba(63,110,165,.14)',stroke:WINCOL,'stroke-width':1.2}));
+      else     svg.appendChild(el('rect',{x:ax-hd,y:Math.min(ay,by),width:2*hd,height:Math.abs(by-ay),fill:'rgba(63,110,165,.14)',stroke:WINCOL,'stroke-width':1.2}));
       svg.appendChild(el('line',{x1:ax,y1:ay,x2:bx,y2:by,stroke:WINCOL,'stroke-width':1.2}));   // glazing line
       jamb(ax,ay);jamb(bx,by);
     }else if(o.type==='doorway'){
       jamb(ax,ay);jamb(bx,by);
-    }else{                                          // door — leaf + swing arc, hinge at (ax,ay)
+    }else{                                          // door — leaf + swing arc
       const sgn=o.flip?-1:1, R=o.len*PX;
-      const tx=horiz?fx(o.x):fx(o.x+sgn*o.len);
-      const ty=horiz?fyR(o.y-sgn*o.len):fyR(o.y);
+      const hpx=o.hinge?bx:ax, hpy=o.hinge?by:ay;   // hinge end (leaf pivots here)
+      const lpx=o.hinge?ax:bx, lpy=o.hinge?ay:by;   // strike (free) end, where the arc closes
+      const tx=horiz?hpx:hpx+sgn*R;                 // open-leaf tip: perpendicular to the wall
+      const ty=horiz?hpy+sgn*R:hpy;
+      const sweep=((tx-hpx)*(lpy-hpy)-(ty-hpy)*(lpx-hpx))>0?1:0;   // keep the 90° arc centred on the hinge (Y is screen-flipped, so this sign matters)
       jamb(ax,ay);jamb(bx,by);
-      svg.appendChild(el('line',{x1:ax,y1:ay,x2:tx,y2:ty,stroke:'var(--ink)','stroke-width':1.5}));     // open leaf
-      svg.appendChild(el('path',{d:`M ${tx} ${ty} A ${R} ${R} 0 0 1 ${bx} ${by}`,fill:'none',stroke:'var(--ink-soft)','stroke-width':1,'stroke-dasharray':'3 3'}));  // swing
+      svg.appendChild(el('line',{x1:hpx,y1:hpy,x2:tx,y2:ty,stroke:'var(--ink)','stroke-width':1.5}));     // open leaf
+      svg.appendChild(el('path',{d:`M ${tx} ${ty} A ${R} ${R} 0 0 ${sweep} ${lpx} ${lpy}`,fill:'none',stroke:'var(--ink-soft)','stroke-width':1,'stroke-dasharray':'3 3'}));  // swing
     }
     // selection highlight (only the selected opening)
     if(i===selectedOpening)
@@ -636,7 +645,7 @@ function snapToWall(cx,cy,len){
 function placeOpening(feet){
   const type=placeTool,len=type==='window'?4:3;
   const s=snapToWall(feet.x,feet.r,len)||{orient:'h',x:snap(feet.x-len/2),y:snap(feet.r),len};
-  openings.push({type,orient:s.orient,x:s.x,y:s.y,len,flip:false});
+  openings.push({type,orient:s.orient,x:s.x,y:s.y,len,flip:false,hinge:false});
   selectedOpening=openings.length-1;selected=null;
   placeTool=null;updateToolButtons();
   renderOpenings();renderPlan();scheduleSave();
@@ -1073,7 +1082,7 @@ function renderCtx(panel){
   }else if(ctx.kind==='open'){
     const o=openings[ctx.idx]||{};
     h=`<div class="hd">${(o.type||'opening')}</div><button data-act="orot">⤾ Turn (H ↔ V)</button>`+
-      (o.type==='door'?`<button data-act="oflip">⇄ Flip swing</button>`:'')+
+      (o.type==='door'?`<button data-act="oflip">⇄ Flip swing</button><button data-act="ohinge">⇄ Flip hinge</button>`:'')+
       `<button class="danger" data-act="odel">✕ Delete</button>`;
   }else if(panel==='furn'){
     h=`<div class="hd">Add furniture</div><div class="scroll">`+
@@ -1113,6 +1122,7 @@ ctxEl.addEventListener('click',e=>{
     case'fdel':furniture.splice(ctx.idx,1);selectedFurn=null;renderFurniture();renderPlan();scheduleSave();break;
     case'orot':{const o=openings[ctx.idx];if(o){o.orient=o.orient==='v'?'h':'v';renderOpenings();renderPlan();scheduleSave();}break;}
     case'oflip':{const o=openings[ctx.idx];if(o){o.flip=!o.flip;renderOpenings();renderPlan();scheduleSave();}break;}
+    case'ohinge':{const o=openings[ctx.idx];if(o){o.hinge=!o.hinge;renderOpenings();renderPlan();scheduleSave();}break;}
     case'odel':openings.splice(ctx.idx,1);selectedOpening=null;renderOpenings();renderPlan();scheduleSave();break;
   }
   hideCtx();
@@ -1174,7 +1184,7 @@ function applyData(d){
   openings=Array.isArray(d.openings)?d.openings.map(o=>({
     type:OTYPES.includes(o.type)?o.type:'door',
     orient:o.orient==='v'?'v':'h',
-    x:+o.x||0,y:+o.y||0,len:Math.max(0.5,+o.len||3),flip:!!o.flip})):[];
+    x:+o.x||0,y:+o.y||0,len:Math.max(0.5,+o.len||3),flip:!!o.flip,hinge:!!o.hinge})):[];
   furniture=Array.isArray(d.furniture)?d.furniture.map(f=>{const cat=FURN[f.type]||{w:3,d:3};
     return {type:FURN[f.type]?f.type:'table',cx:+f.cx||0,cy:+f.cy||0,
       w:Math.max(0.5,+f.w||cat.w),d:Math.max(0.5,+f.d||cat.d),rot:((+f.rot||0)%360+360)%360};}):[];
@@ -1257,7 +1267,7 @@ function exportJSON(){
     walls:{ext:walls.ext,int:walls.int},
     wings:wings.map(s=>({w:s.w,d:s.d,s:s.s})),
     rooms:rooms.map(r=>({name:r.name,desired:r.desired,x:r.x,y:r.y,w:r.w,h:r.h,color:r.color,open:!!r.open})),
-    openings:openings.map(o=>({type:o.type,orient:o.orient,x:o.x,y:o.y,len:o.len,flip:!!o.flip})),
+    openings:openings.map(o=>({type:o.type,orient:o.orient,x:o.x,y:o.y,len:o.len,flip:!!o.flip,hinge:!!o.hinge})),
     furniture:furniture.map(f=>({type:f.type,cx:f.cx,cy:f.cy,w:f.w,d:f.d,rot:f.rot||0}))};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
   const url=URL.createObjectURL(blob);const a=document.createElement('a');
