@@ -565,11 +565,21 @@ function roomsAdjacentToWall(w){
     if(isV){if((Math.abs(bb.x-axis)<0.25||Math.abs(bb.x+bb.w-axis)<0.25)&&Math.min(bb.y+bb.h,hi)-Math.max(bb.y,lo)>0.3)adj.push(ri);}
     else if(isH){if((Math.abs(bb.y-axis)<0.25||Math.abs(bb.y+bb.h-axis)<0.25)&&Math.min(bb.x+bb.w,hi)-Math.max(bb.x,lo)>0.3)adj.push(ri);}});
   return {isV,isH,adj};}
-// move a whole wall by (ddx,ddy) — perpendicular to its run — and re-fit the rooms it borders
+// endpoints of OTHER walls that sit on wall wi's line (so they can be dragged along when the wall moves)
+function connectedEnds(wi,isV,axis,lo,hi){const out=[];
+  iwalls.forEach((w,i)=>{if(i===wi||w.length<2)return;[w[0],w[w.length-1]].forEach(E=>{
+    if(isV){if(Math.abs(E[0]-axis)<0.15&&E[1]>=lo-0.15&&E[1]<=hi+0.15)out.push(E);}
+    else{if(Math.abs(E[1]-axis)<0.15&&E[0]>=lo-0.15&&E[0]<=hi+0.15)out.push(E);}});});
+  return out;}
+// move a whole wall by (ddx,ddy) — perpendicular to its run — dragging connected wall ends and re-fitting bordered rooms
 function nudgeWall(wi,ddx,ddy){
   const w=iwalls[wi];if(!w||w.length<2)return;
   const {isV,isH,adj}=roomsAdjacentToWall(w);
-  if(isV)w.forEach(p=>p[0]+=ddx); else if(isH)w.forEach(p=>p[1]+=ddy); else w.forEach(p=>{p[0]+=ddx;p[1]+=ddy;});
+  const xs=w.map(p=>p[0]),ys=w.map(p=>p[1]),axis=isV?xs[0]:ys[0],lo=isV?Math.min(...ys):Math.min(...xs),hi=isV?Math.max(...ys):Math.max(...xs);
+  const ends=(isV||isH)?connectedEnds(wi,isV,axis,lo,hi):[];
+  if(isV){w.forEach(p=>p[0]+=ddx);ends.forEach(E=>E[0]+=ddx);}
+  else if(isH){w.forEach(p=>p[1]+=ddy);ends.forEach(E=>E[1]+=ddy);}
+  else w.forEach(p=>{p[0]+=ddx;p[1]+=ddy;});
   adj.forEach(ri=>snapRoomToWalls(rooms[ri]));
   renderPlan();scheduleSave();buildWallsPanel();}
 // distance from a point to a segment, and which kind of wall (if any) is under a point — for double-click/long-press editing
@@ -1188,7 +1198,8 @@ svg.addEventListener('pointerdown',e=>{
         if(isV){if((Math.abs(bb.x-oldAxis)<0.25||Math.abs(bb.x+bb.w-oldAxis)<0.25)&&Math.min(bb.y+bb.h,hi)-Math.max(bb.y,lo)>0.3)adj.push(ri);}
         else if(isH){if((Math.abs(bb.y-oldAxis)<0.25||Math.abs(bb.y+bb.h-oldAxis)<0.25)&&Math.min(bb.x+bb.w,hi)-Math.max(bb.x,lo)>0.3)adj.push(ri);}});
       const p=feetFromEvent(e);selectedWall=wi;
-      drag={kind:'iwmove',wi,isV,isH,oldAxis,adj,sx:p.x,sr:p.r,o:w.map(q=>q.slice())};
+      const ends=connectedEnds(wi,isV,oldAxis,lo,hi);
+      drag={kind:'iwmove',wi,isV,isH,oldAxis,adj,ends,sx:p.x,sr:p.r,o:w.map(q=>q.slice())};
       try{svg.setPointerCapture(e.pointerId);}catch(_){}e.preventDefault();return;}
   }
   const t=e.target;
@@ -1289,6 +1300,7 @@ svg.addEventListener('pointermove',e=>{
     if(drag.isV||drag.isH){
       const na=snap(drag.oldAxis+(drag.isV?dx:dr));
       w.forEach((p,i)=>{if(drag.isV){p[0]=na;p[1]=o[i][1];}else{p[0]=o[i][0];p[1]=na;}});
+      drag.ends.forEach(E=>{if(drag.isV)E[0]=na;else E[1]=na;});   // connected wall ends follow
       drag.adj.forEach(ri=>snapRoomToWalls(rooms[ri]));
     }else{w.forEach((p,i)=>{p[0]=snap(o[i][0]+dx);p[1]=snap(o[i][1]+dr);});}
     renderPlan();return;
