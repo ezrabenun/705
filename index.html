@@ -496,6 +496,20 @@ function snapRoomToWalls(r){
   const rect=enclosingRect(c[0],c[1]);
   if(rect&&rect.w*rect.h<=orig*1.8){delete r.poly;r.x=rect.x;r.y=rect.y;r.w=rect.w;r.h=rect.h;return true;}
   return false;}
+// distance from a point to a segment, and which kind of wall (if any) is under a point — for double-click/long-press editing
+function segDist(px,py,ax,ay,bx,by){const dx=bx-ax,dy=by-ay,L2=dx*dx+dy*dy;let t=L2?((px-ax)*dx+(py-ay)*dy)/L2:0;t=Math.max(0,Math.min(1,t));return Math.hypot(px-(ax+t*dx),py-(ay+t*dy));}
+function wallHitType(px,py,thresh){
+  let iw=Infinity,ol=Infinity;
+  for(const w of iwalls)for(let i=0;i+1<w.length;i++)iw=Math.min(iw,segDist(px,py,w[i][0],w[i][1],w[i+1][0],w[i+1][1]));
+  for(let i=0;i<footprint.length;i++){const p=footprint[i],q=footprint[(i+1)%footprint.length];ol=Math.min(ol,segDist(px,py,p[0],p[1],q[0],q[1]));}
+  if(iw<=thresh&&iw<=ol)return 'iwall';
+  if(ol<=thresh)return 'outline';
+  return null;}
+// enter the right edit mode for the wall kind under a point (null = none)
+function editWallAt(px,py){const hit=wallHitType(px,py,0.8);
+  if(hit==='iwall'){drawWall=null;editOutline=false;editWalls=true;buildWallsPanel();buildFramePanel();renderPlan();return true;}
+  if(hit==='outline'){drawWall=null;editWalls=false;editOutline=true;buildFramePanel();buildWallsPanel();renderPlan();return true;}
+  return false;}
 
 /* ---------- tabs ---------- */
 const TABS=['rooms','openings','furniture','frame','plot','walls'];
@@ -514,7 +528,8 @@ function buildFramePanel(){
   panel.innerHTML=`<div class="card" style="max-width:560px">
     <h3>Building outline</h3>
     <p style="margin:.2rem 0 .6rem;font-size:.82rem;line-height:1.5;color:var(--ink-soft)">
-      The outer wall is a free polygon. Turn on editing, then on the plan:
+      <b>Double-click</b> (or long-press) the outer wall on the plan to edit it directly, or turn on editing here.
+      The outer wall is a free polygon; then on the plan:
       <b>drag</b> a red corner to move it (snaps to the grid &amp; square corners),
       click a blue <b>+</b> on an edge to add a corner, and <b>double-click</b> a corner to delete it.
       Hold <b>Alt</b> while dragging to move off-grid / off-angle.
@@ -561,7 +576,8 @@ function buildWallsPanel(){
   if(!card)return;
   card.innerHTML=`<h3>Interior walls</h3>
     <p style="margin:.2rem 0 .6rem;font-size:.82rem;line-height:1.5;color:var(--ink-soft)">
-      Interior walls are free-drawn. <b>Draw a wall</b> then click points on the plan (snaps to grid, square,
+      <b>Double-click</b> (or long-press) a wall on the plan to edit it directly. Interior walls are free-drawn:
+      <b>Draw a wall</b> then click points on the plan (snaps to grid, square,
       and onto outer walls); <b>double-click</b> to finish. In <b>Edit</b> mode, drag a wall's dots to move,
       click a <b>+</b> to add a point, double-click a dot to delete. Hold <b>Alt</b> for free placement.
       A room's inner size measures against whatever walls border it — so one drawn wall in a corner completes a room.</p>
@@ -1005,7 +1021,8 @@ svg.addEventListener('pointerdown',e=>{
         drag=null;renderPlan();
       }
       panP=null;gMoved=true;                     // suppress the tap/double-tap that would otherwise follow
-      openCtxMenu(lpTarget,lpX,lpY);
+      const f=feetFromEvent({clientX:lpX,clientY:lpY});
+      if(!editWallAt(f.x,f.r))openCtxMenu(lpTarget,lpX,lpY);   // long-press a wall → edit it, else the context menu
       try{navigator.vibrate&&navigator.vibrate(15);}catch(_){}
     },500);
   }
@@ -1202,14 +1219,14 @@ svg.addEventListener('dblclick',e=>{
     if(drawWall.length>=2)iwalls.push(drawWall);
     drawWall=null;renderPlan();buildWallsPanel();scheduleSave();e.preventDefault();return;
   }
-  if(editOutline){                                    // double-click an outline corner to delete it
-    const fp=e.target.getAttribute&&e.target.getAttribute('data-fpt');
-    if(fp!=null&&footprint.length>3){footprint.splice(+fp,1);renderPlan();buildFramePanel();scheduleSave();e.preventDefault();}return;
-  }
-  if(editWalls){                                      // double-click an interior-wall point to delete it
-    const iw=e.target.getAttribute&&e.target.getAttribute('data-iwpt');
-    if(iw!=null){const[wi,pi]=iw.split(',').map(Number),w=iwalls[wi];w.splice(pi,1);if(w.length<2)iwalls.splice(wi,1);renderPlan();buildWallsPanel();scheduleSave();e.preventDefault();}return;
-  }
+  const fp=e.target.getAttribute&&e.target.getAttribute('data-fpt');   // dbl-click a corner while editing → delete it
+  if(editOutline&&fp!=null&&footprint.length>3){footprint.splice(+fp,1);renderPlan();buildFramePanel();scheduleSave();e.preventDefault();return;}
+  const iwp=e.target.getAttribute&&e.target.getAttribute('data-iwpt'); // dbl-click a wall point while editing → delete it
+  if(editWalls&&iwp!=null){const[wi,pi]=iwp.split(',').map(Number),w=iwalls[wi];w.splice(pi,1);if(w.length<2)iwalls.splice(wi,1);renderPlan();buildWallsPanel();scheduleSave();e.preventDefault();return;}
+  // otherwise: double-click a wall to start editing it; double-click empty space to finish editing
+  const f=feetFromEvent(e);
+  if(editWallAt(f.x,f.r)){e.preventDefault();return;}
+  if(editWalls||editOutline){editWalls=false;editOutline=false;buildWallsPanel();buildFramePanel();renderPlan();e.preventDefault();}
 });
 document.addEventListener('keydown',e=>{
   if(e.key==='r'||e.key==='R'){                    // rotate the selected furniture 90°
