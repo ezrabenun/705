@@ -505,6 +505,23 @@ function wallHitType(px,py,thresh){
   if(iw<=thresh&&iw<=ol)return 'iwall';
   if(ol<=thresh)return 'outline';
   return null;}
+// axis-aligned interior wall segments (skips any diagonal runs)
+function interiorSegments(){const S=[];iwalls.forEach(w=>{for(let i=0;i+1<w.length;i++){const a=w[i],b=w[i+1];
+  if(Math.abs(a[0]-b[0])<1e-6)S.push({v:true,ax:a[0],lo:Math.min(a[1],b[1]),hi:Math.max(a[1],b[1])});
+  else if(Math.abs(a[1]-b[1])<1e-6)S.push({v:false,ax:a[1],lo:Math.min(a[0],b[0]),hi:Math.max(a[0],b[0])});}});return S;}
+// stretches where an interior wall runs on top of another interior wall or the outer outline (redundant/overlapping)
+function overlapIntervals(){
+  const IS=interiorSegments(),OL=[],tol=0.06;
+  for(let i=0;i<footprint.length;i++){const p=footprint[i],q=footprint[(i+1)%footprint.length];
+    if(Math.abs(p[0]-q[0])<1e-6)OL.push({v:true,ax:p[0],lo:Math.min(p[1],q[1]),hi:Math.max(p[1],q[1])});
+    else if(Math.abs(p[1]-q[1])<1e-6)OL.push({v:false,ax:p[1],lo:Math.min(p[0],q[0]),hi:Math.max(p[0],q[0])});}
+  const others=IS.concat(OL),out=[];
+  for(let i=0;i<IS.length;i++){const s=IS[i];
+    for(let j=0;j<others.length;j++){const t=others[j];if(t===s)continue;
+      if(t.v!==s.v||Math.abs(t.ax-s.ax)>tol)continue;
+      const lo=Math.max(s.lo,t.lo),hi=Math.min(s.hi,t.hi);
+      if(hi-lo>tol)out.push({v:s.v,ax:s.ax,lo,hi});}}
+  return out;}
 // index of the interior wall nearest a point (within thresh), or -1
 function nearestIWall(px,py,thresh){let best=-1,bd=thresh;
   for(let wi=0;wi<iwalls.length;wi++){const w=iwalls[wi];for(let i=0;i+1<w.length;i++){const d=segDist(px,py,w[i][0],w[i][1],w[i+1][0],w[i+1][1]);if(d<bd){bd=d;best=wi;}}}
@@ -680,6 +697,9 @@ function renderPlan(){
   // exterior wall shell (along footprint outline)
   svg.appendChild(el('path',{d:"M "+pts.map(p=>fx(p[0])+" "+fyR(p[1])).join(" L ")+" Z",
     fill:'none',stroke:'var(--ink)','stroke-width':Math.max(1.5,walls.ext/12*PX),'stroke-linejoin':'miter'}));
+  // flag overlapping/doubled wall runs in a warning colour
+  overlapIntervals().forEach(o=>{const x1=o.v?o.ax:o.lo,y1=o.v?o.lo:o.ax,x2=o.v?o.ax:o.hi,y2=o.v?o.hi:o.ax;
+    svg.appendChild(el('line',{x1:fx(x1),y1:fyR(y1),x2:fx(x2),y2:fyR(y2),stroke:'var(--red)','stroke-width':Math.max(2.5,itPx),'stroke-linecap':'round','stroke-opacity':.9}));});
   // rooms — pass 3: selection outline + resize handles (only the selected room can be moved/resized)
   rooms.forEach((r,i)=>{
     if(i!==selected)return;
