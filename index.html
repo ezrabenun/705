@@ -491,15 +491,18 @@ function wallSegs(){const S=[];const add=(p,q)=>{if(Math.abs(p[0]-q[0])<1e-6)S.p
   else if(Math.abs(p[1]-q[1])<1e-6)S.push({v:false,y:p[1],a:Math.min(p[0],q[0]),b:Math.max(p[0],q[0])});};
   for(let i=0;i<footprint.length;i++)add(footprint[i],footprint[(i+1)%footprint.length]);
   for(const w of iwalls)for(let i=0;i+1<w.length;i++)add(w[i],w[i+1]);return S;}
-// flood-fill the wall-line grid to get the exact rectilinear polygon of the space containing (cx,cy)
-function enclosedPolygon(cx,cy){
+// flood-fill the wall-line grid to get the exact rectilinear polygon of the space containing (cx,cy).
+// `bounds` (optional {x,y,w,h}) clips the fill to a local box so it follows walls where they exist and the
+// box edge where a side is open — preventing the fill from "leaking" out through an unwalled/misaligned side.
+function enclosedPolygon(cx,cy,bounds){
   if(!inFoot(cx,cy))return null;
   const S=wallSegs(),g=geom(),eps=1e-4;
-  const xs=new Set([g.minX,g.maxX]),ys=new Set([g.minY,g.maxY]);
+  const bx0=bounds?bounds.x:g.minX,bx1=bounds?bounds.x+bounds.w:g.maxX,by0=bounds?bounds.y:g.minY,by1=bounds?bounds.y+bounds.h:g.maxY;
+  const xs=new Set([bx0,bx1]),ys=new Set([by0,by1]);
   for(const s of S){if(s.v){xs.add(s.x);ys.add(s.a);ys.add(s.b);}else{ys.add(s.y);xs.add(s.a);xs.add(s.b);}}
-  const X=[...xs].sort((a,b)=>a-b),Y=[...ys].sort((a,b)=>a-b),nc=X.length-1,nr=Y.length-1;
+  const X=[...xs].sort((a,b)=>a-b).filter(v=>v>=bx0-eps&&v<=bx1+eps),Y=[...ys].sort((a,b)=>a-b).filter(v=>v>=by0-eps&&v<=by1+eps),nc=X.length-1,nr=Y.length-1;
   if(nc<1||nr<1)return null;
-  const inCell=(i,j)=>inFoot((X[i]+X[i+1])/2,(Y[j]+Y[j+1])/2);
+  const inCell=(i,j)=>{const mx=(X[i]+X[i+1])/2,my=(Y[j]+Y[j+1])/2;return inFoot(mx,my)&&mx>=bx0-eps&&mx<=bx1+eps&&my>=by0-eps&&my<=by1+eps;};
   const vWall=(x,a,b)=>S.some(s=>s.v&&Math.abs(s.x-x)<1e-3&&s.a<=a+eps&&s.b>=b-eps);
   const hWall=(y,a,b)=>S.some(s=>!s.v&&Math.abs(s.y-y)<1e-3&&s.a<=a+eps&&s.b>=b-eps);
   let ci=-1,cj=-1;for(let i=0;i<nc;i++)if(cx>=X[i]-eps&&cx<=X[i+1]+eps){ci=i;break;}
@@ -529,17 +532,21 @@ function enclosedPolygon(cx,cy){
   if(!best||best.length<4)return null;
   return simplifyPoly(best);
 }
-// snap a room to its enclosing walls, taking the true shape of that space.
-// If the walls don't fully enclose the room the flood "leaks" into adjacent space; in that case
-// we fall back to the nearest-wall rectangle instead of merging everything together.
+// fit a room's 4 edges to the nearest parallel wall within maxS ft (that spans the room's mid-line),
+// keeping the room's own edge where no wall is close — this realigns rooms that have drifted off their walls
+function fittedBounds(r,maxS){maxS=maxS||3;const S=wallSegs(),cx=r.x+r.w/2,cy=r.y+r.h/2;
+  const nV=t=>{let b=t,bd=maxS;for(const s of S)if(s.v&&s.a<=cy+0.1&&s.b>=cy-0.1){const dd=Math.abs(s.x-t);if(dd<bd){bd=dd;b=s.x;}}return b;};
+  const nH=t=>{let b=t,bd=maxS;for(const s of S)if(!s.v&&s.a<=cx+0.1&&s.b>=cx-0.1){const dd=Math.abs(s.y-t);if(dd<bd){bd=dd;b=s.y;}}return b;};
+  const L=nV(r.x),R=nV(r.x+r.w),F=nH(r.y),B=nH(r.y+r.h);
+  return {x:Math.min(L,R),y:Math.min(F,B),w:Math.max(0.5,Math.abs(R-L)),h:Math.max(0.5,Math.abs(B-F))};}
+// snap a room to its walls: fit its edges to nearby walls, then carve the true shape within that box.
+// Bounding to the fitted box means it follows walls/notches but never leaks out through an open side.
 function snapRoomToWalls(r){
-  const c=r.poly?polyCentroid(r.poly):[r.x+r.w/2,r.y+r.h/2];
-  const orig=Math.max(1,(r.w||1)*(r.h||1));
-  const poly=enclosedPolygon(c[0],c[1]);
-  if(poly&&Math.abs(polyArea(poly))<=orig*1.8){const bb=polyBBox(poly);r.poly=poly;r.x=bb.x;r.y=bb.y;r.w=bb.w;r.h=bb.h;return true;}
-  const rect=enclosingRect(c[0],c[1]);
-  if(rect&&rect.w*rect.h<=orig*1.8){delete r.poly;r.x=rect.x;r.y=rect.y;r.w=rect.w;r.h=rect.h;return true;}
-  return false;}
+  const bounds=fittedBounds(r);
+  const c=[bounds.x+bounds.w/2, bounds.y+bounds.h/2];
+  const poly=enclosedPolygon(c[0],c[1],bounds);
+  if(poly){const bb=polyBBox(poly);r.poly=poly;r.x=bb.x;r.y=bb.y;r.w=bb.w;r.h=bb.h;return true;}
+  delete r.poly;r.x=bounds.x;r.y=bounds.y;r.w=bounds.w;r.h=bounds.h;return true;}
 // distance from a point to a segment, and which kind of wall (if any) is under a point — for double-click/long-press editing
 function segDist(px,py,ax,ay,bx,by){const dx=bx-ax,dy=by-ay,L2=dx*dx+dy*dy;let t=L2?((px-ax)*dx+(py-ay)*dy)/L2:0;t=Math.max(0,Math.min(1,t));return Math.hypot(px-(ax+t*dx),py-(ay+t*dy));}
 function wallHitType(px,py,thresh){
