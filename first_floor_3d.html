@@ -190,10 +190,13 @@ function build(L){
   const wallsCfg=L.walls||{ext:7,int:4.75};
   const T_EXT=Math.max(0.25,(+wallsCfg.ext||7)/12), T_INT=Math.max(0.2,(+wallsCfg.int||4.75)/12);
   const closed=rooms.filter(r=>!r.open);
-  // building footprint from the wings/frame — used to tell exterior walls from interior ones
+  // building footprint — used to tell exterior walls from interior ones.
+  // Prefer the free outline polygon; fall back to the legacy stacked wings for old saves.
+  const footprint=Array.isArray(L.footprint)&&L.footprint.length>=3?L.footprint.map(p=>[+p[0]||0,+p[1]||0]):null;
   const wings=Array.isArray(L.wings)?L.wings:[];
   const xE=[0]; wings.forEach(s=>xE.push(xE[xE.length-1]+(+s.w||0)));
-  function insideBuilding(x,z){for(let i=0;i<wings.length;i++){const y0=+wings[i].s||0,y1=y0+(+wings[i].d||0);
+  function inPoly(x,z){let inside=false;for(let i=0,j=footprint.length-1;i<footprint.length;j=i++){const xi=footprint[i][0],yi=footprint[i][1],xj=footprint[j][0],yj=footprint[j][1];if(((yi>z)!==(yj>z))&&(x<(xj-xi)*(z-yi)/(yj-yi)+xi))inside=!inside;}return inside;}
+  function insideBuilding(x,z){if(footprint)return inPoly(x,z);for(let i=0;i<wings.length;i++){const y0=+wings[i].s||0,y1=y0+(+wings[i].d||0);
     if(x>xE[i]+0.05&&x<xE[i+1]-0.05&&z>y0+0.05&&z<y1-0.05)return true;}return false;}
 
   // centre / camera framing from the walled rooms (fall back to all rooms)
@@ -212,19 +215,28 @@ function build(L){
   // floor slabs — every room (open rooms sit flat as patios/landscape)
   rooms.forEach(r=>{const col=r.color||'#c8ccd2';
     const h=r.open?0.08:SLAB+0.02, y=r.open?-0.02:0;
+    if(Array.isArray(r.poly)&&r.poly.length>=3){          // shaped room → extrude its polygon as the floor slab
+      const shape=new THREE.Shape();
+      r.poly.forEach((p,i)=>{const sx=p[0]-CX,sy=p[1]-CZ;i===0?shape.moveTo(sx,sy):shape.lineTo(sx,sy);});
+      const geo=new THREE.ExtrudeGeometry(shape,{depth:h,bevelEnabled:false});geo.rotateX(-Math.PI/2);
+      const m=new THREE.Mesh(geo,M(new THREE.Color(col),{roughness:.9}));m.position.y=y-h/2;m.receiveShadow=true;world.add(m);
+      return;}
     world.add(box(r.w-0.1,h,r.h-0.1,M(new THREE.Color(col),{roughness:.9}),r.x+r.w/2-CX,y,CZ-(r.y+r.h/2)));});
 
   // ---- walls (from walled-room edges, deduped, with door gaps) ----
   // "outside" = beyond the building footprint. Falls back to the room test if there are no wings.
-  const hasWings=wings.length>0;
+  const hasFrame=footprint?true:wings.length>0;
   function insideAny(x,z){for(const r of closed){if(x>r.x+0.05&&x<r.x+r.w-0.05&&z>r.y+0.05&&z<r.y+r.h-0.05)return true;}return false;}
   // open areas that are part of the building (their rectangle overlaps the frame) — e.g. a covered patio.
   // Walls facing these are dropped; open landscape beyond the frame (yard/pool/setbacks) keeps its walls.
-  function overlapsFrame(r){for(let i=0;i<wings.length;i++){const wy0=+wings[i].s||0,wy1=wy0+(+wings[i].d||0);
-    if(Math.min(r.x+r.w,xE[i+1])-Math.max(r.x,xE[i])>0.5 && Math.min(r.y+r.h,wy1)-Math.max(r.y,wy0)>0.5)return true;}return false;}
-  const openBuilding=hasWings?rooms.filter(r=>r.open&&overlapsFrame(r)):rooms.filter(r=>r.open);
+  function overlapsFrame(r){
+    if(footprint){const xs=[r.x+0.3,r.x+r.w/2,r.x+r.w-0.3],zs=[r.y+0.3,r.y+r.h/2,r.y+r.h-0.3];
+      for(const x of xs)for(const z of zs)if(inPoly(x,z))return true;return false;}
+    for(let i=0;i<wings.length;i++){const wy0=+wings[i].s||0,wy1=wy0+(+wings[i].d||0);
+      if(Math.min(r.x+r.w,xE[i+1])-Math.max(r.x,xE[i])>0.5 && Math.min(r.y+r.h,wy1)-Math.max(r.y,wy0)>0.5)return true;}return false;}
+  const openBuilding=hasFrame?rooms.filter(r=>r.open&&overlapsFrame(r)):rooms.filter(r=>r.open);
   function insideOpen(x,z){for(const r of openBuilding){if(x>r.x+0.05&&x<r.x+r.w-0.05&&z>r.y+0.05&&z<r.y+r.h-0.05)return true;}return false;}
-  const isOutside=(x,z)=>hasWings?!insideBuilding(x,z):!insideAny(x,z);
+  const isOutside=(x,z)=>hasFrame?!insideBuilding(x,z):!insideAny(x,z);
   function gapHit(mx,mz,horiz){                     // doors & doorways cut the wall; windows do not
     for(const o of openings){ if(o.type==='window')continue;
       if(horiz){ if(o.orient==='h'&&Math.abs(mz-o.y)<0.7&&mx>o.x-0.25&&mx<o.x+o.len+0.25)return true; }
@@ -233,34 +245,54 @@ function build(L){
   }
   const extMat=()=>M(0x2b3440,{transparent:true,opacity:0.5,roughness:.6,side:THREE.DoubleSide,depthWrite:false});
   const intMat=()=>M(0x9cc0e6,{transparent:true,opacity:0.4,roughness:.35,side:THREE.DoubleSide,depthWrite:false});
-  const drawn=new Set(),STEP=0.5;
+  const STEP=0.5;
   function addWall(x1,z1,x2,z2,ext){const len=Math.hypot(x2-x1,z2-z1);if(len<0.25)return;
     const horiz=Math.abs(z2-z1)<Math.abs(x2-x1),t=ext?T_EXT:T_INT;
     const w=horiz?len:t,d=horiz?t:len,mat=ext?extMat():intMat();
     const m=box(w,CEIL,d,mat,(x1+x2)/2-CX,0,CZ-(z1+z2)/2);world.add(m);walls.push({mesh:m,mat,ext});}
   function key(a,b,horiz){return(horiz?'H':'V')+Math.round(a*2)+'_'+Math.round(b*2);}
-  closed.forEach(r=>{const a=r.x,b=r.y,c=r.x+r.w,d=r.y+r.h;
-    const edges=[
-      {x1:a,z1:b,x2:c,z2:b,nx:0,nz:-1,h:1},{x1:a,z1:d,x2:c,z2:d,nx:0,nz:1,h:1},
-      {x1:a,z1:b,x2:a,z2:d,nx:-1,nz:0,h:0},{x1:c,z1:b,x2:c,z2:d,nx:1,nz:0,h:0}];
-    edges.forEach(e=>{const len=Math.hypot(e.x2-e.x1,e.z2-e.z1),n=Math.max(1,Math.round(len/STEP));
-      let run=null,rExt=null; const flush=()=>{if(run){addWall(run.x1,run.z1,run.x2,run.z2,rExt);run=null;}};
-      for(let i=0;i<n;i++){
-        const mx=e.x1+(e.x2-e.x1)*(i+0.5)/n, mz=e.z1+(e.z2-e.z1)*(i+0.5)/n;
-        const ox=mx+e.nx*0.4, oz=mz+e.nz*0.4;
-        const outside=isOutside(ox,oz);
-        let draw=true, ext=outside;
-        if(gapHit(mx,mz,e.h)) draw=false;
-        else if(insideOpen(ox,oz)) draw=false;             // edge faces an open building-area (patio) → no wall
-        else if(!outside){const k=key(e.h?mz:mx,e.h?mx:mz,e.h); if(drawn.has(k))draw=false; else drawn.add(k);}
-        const sx=e.x1+(e.x2-e.x1)*i/n, sz=e.z1+(e.z2-e.z1)*i/n;
-        const ex=e.x1+(e.x2-e.x1)*(i+1)/n, ez=e.z1+(e.z2-e.z1)*(i+1)/n;
-        if(draw){ if(run&&rExt===ext){run.x2=ex;run.z2=ez;} else {flush();run={x1:sx,z1:sz,x2:ex,z2:ez};rExt=ext;} }
-        else flush();
-      }
-      flush();
+  // build a wall along a segment, cutting gaps where doors/doorways sit
+  function buildWallAlong(x1,z1,x2,z2,ext){
+    const horiz=Math.abs(z2-z1)<Math.abs(x2-x1),len=Math.hypot(x2-x1,z2-z1);if(len<0.25)return;
+    const n=Math.max(1,Math.round(len/STEP));let run=null;
+    const flush=()=>{if(run){addWall(run.x1,run.z1,run.x2,run.z2,ext);run=null;}};
+    for(let i=0;i<n;i++){
+      const mx=x1+(x2-x1)*(i+0.5)/n, mz=z1+(z2-z1)*(i+0.5)/n;
+      const draw=!gapHit(mx,mz,horiz);
+      const sx=x1+(x2-x1)*i/n, sz=z1+(z2-z1)*i/n, ex=x1+(x2-x1)*(i+1)/n, ez=z1+(z2-z1)*(i+1)/n;
+      if(draw){ if(run){run.x2=ex;run.z2=ez;} else run={x1:sx,z1:sz,x2:ex,z2:ez}; } else flush();
+    }
+    flush();
+  }
+  const iwalls=Array.isArray(L.iwalls)?L.iwalls:[];
+  if(footprint){                                          // new model: outline = exterior, iwalls = interior
+    for(let i=0;i<footprint.length;i++){const p=footprint[i],q=footprint[(i+1)%footprint.length];buildWallAlong(p[0],p[1],q[0],q[1],true);}
+    iwalls.forEach(w=>{for(let i=0;i+1<w.length;i++)buildWallAlong(w[i][0],w[i][1],w[i+1][0],w[i+1][1],false);});
+  } else {                                                // legacy saves (wings/rooms only): derive walls from room edges
+    const drawn=new Set();
+    closed.forEach(r=>{const a=r.x,b=r.y,c=r.x+r.w,d=r.y+r.h;
+      const edges=[
+        {x1:a,z1:b,x2:c,z2:b,nx:0,nz:-1,h:1},{x1:a,z1:d,x2:c,z2:d,nx:0,nz:1,h:1},
+        {x1:a,z1:b,x2:a,z2:d,nx:-1,nz:0,h:0},{x1:c,z1:b,x2:c,z2:d,nx:1,nz:0,h:0}];
+      edges.forEach(e=>{const len=Math.hypot(e.x2-e.x1,e.z2-e.z1),n=Math.max(1,Math.round(len/STEP));
+        let run=null,rExt=null; const flush=()=>{if(run){addWall(run.x1,run.z1,run.x2,run.z2,rExt);run=null;}};
+        for(let i=0;i<n;i++){
+          const mx=e.x1+(e.x2-e.x1)*(i+0.5)/n, mz=e.z1+(e.z2-e.z1)*(i+0.5)/n;
+          const ox=mx+e.nx*0.4, oz=mz+e.nz*0.4;
+          const outside=isOutside(ox,oz);
+          let draw=true, ext=outside;
+          if(gapHit(mx,mz,e.h)) draw=false;
+          else if(insideOpen(ox,oz)) draw=false;
+          else if(!outside){const k=key(e.h?mz:mx,e.h?mx:mz,e.h); if(drawn.has(k))draw=false; else drawn.add(k);}
+          const sx=e.x1+(e.x2-e.x1)*i/n, sz=e.z1+(e.z2-e.z1)*i/n;
+          const ex=e.x1+(e.x2-e.x1)*(i+1)/n, ez=e.z1+(e.z2-e.z1)*(i+1)/n;
+          if(draw){ if(run&&rExt===ext){run.x2=ex;run.z2=ez;} else {flush();run={x1:sx,z1:sz,x2:ex,z2:ez};rExt=ext;} }
+          else flush();
+        }
+        flush();
+      });
     });
-  });
+  }
 
   // ---- windows (glass overlay) ----
   openings.forEach(o=>{ if(o.type!=='window')return;

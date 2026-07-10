@@ -29,8 +29,8 @@
   svg{width:100%;height:auto;display:block;touch-action:none;-webkit-user-select:none;user-select:none;
     transform-origin:0 0;}
   #plan *{pointer-events:none;}
-  #plan rect[data-room]{pointer-events:all;cursor:pointer;}
-  #plan rect[data-room].selected{cursor:move;}
+  #plan [data-room]{pointer-events:all;cursor:pointer;}
+  #plan [data-room].selected{cursor:move;}
   #plan rect[data-corner]{pointer-events:all;cursor:nwse-resize;}
   #plan [data-open]{pointer-events:all;cursor:pointer;}
   #plan [data-open].osel{cursor:move;}
@@ -39,6 +39,10 @@
   #plan [data-furn].fsel{cursor:move;}
   #plan [data-frot]{pointer-events:all;cursor:grab;}
   #plan [data-fresize]{pointer-events:all;cursor:nwse-resize;}
+  #plan [data-fpt]{pointer-events:all;cursor:move;}
+  #plan [data-fadd]{pointer-events:all;cursor:copy;}
+  #plan [data-iwpt]{pointer-events:all;cursor:move;}
+  #plan [data-iwadd]{pointer-events:all;cursor:copy;}
   svg#plan.arming{cursor:crosshair;}
   .btn.tool.armed{background:var(--red);border-color:var(--red);color:#fff;}
   .ctxmenu{position:fixed;z-index:1000;background:#fff;border:1px solid var(--line);border-radius:8px;
@@ -139,7 +143,7 @@
     <button id="tab-rooms" role="tab" aria-selected="true">Rooms</button>
     <button id="tab-openings" role="tab" aria-selected="false">Doors / Windows</button>
     <button id="tab-furniture" role="tab" aria-selected="false">Furniture</button>
-    <button id="tab-frame" role="tab" aria-selected="false">Frame</button>
+    <button id="tab-frame" role="tab" aria-selected="false">Outline</button>
     <button id="tab-plot" role="tab" aria-selected="false">Plot</button>
     <button id="tab-walls" role="tab" aria-selected="false">Walls</button>
   </div>
@@ -236,11 +240,12 @@
 
   <!-- WALLS -->
   <div class="pane" id="pane-walls">
-    <div class="panel" style="grid-template-columns:repeat(2,1fr);max-width:540px">
+    <div class="panel" style="grid-template-columns:repeat(2,1fr);max-width:760px">
       <div class="card"><h3>Wall thickness (inches)</h3>
         <div class="fld"><label>Exterior</label><input type="number" id="w-ext" min="0" step="0.25"></div>
         <div class="fld"><label>Interior</label><input type="number" id="w-int" min="0" step="0.25"></div>
       </div>
+      <div class="card" id="iwall-card"><h3>Interior walls</h3></div>
     </div>
   </div>
 
@@ -331,6 +336,14 @@ let walls={ext:7,int:4.75};                  // wall thickness in INCHES
 // openings sit on top of the walls. type: 'door' (leaf + swing arc) | 'doorway' (plain gap) | 'window' (glazing).
 // x,y = one end (ft); orient 'h' spans +x, 'v' spans +y; len in ft; flip mirrors a door's swing side.
 let openings=[];
+// building outline: a free polygon of [x,y] corners (ft) in building coords; the outer wall follows it.
+// Seeded from the legacy `wings` frame; editable corner-by-corner on the plan.
+let footprint=wingsToPolygon(wings);
+let editOutline=false;                        // when true, the plan shows draggable outline corners
+// interior walls: free-drawn polylines [[x,y],...] (ft). Seeded from the room layout; edited on the plan.
+let iwalls=roomsToIWalls();
+let editWalls=false;                          // when true, interior-wall corners are draggable
+let drawWall=null;                            // in-progress polyline while drawing a new wall (array of pts) or null
 // furniture: {type, cx, cy (centre, ft), w, d (footprint ft), rot (0/90/180/270)}
 let furniture=[];
 let cur={TW:0,MD:0};
@@ -349,10 +362,114 @@ function txt(x,y,cls,str,anchor){const t=el('text',{x,y,class:cls,'text-anchor':
 function ft(n){return fmt(n)+"'";}
 function ftIn(v){let f=Math.floor(v+1e-6);let inch=Math.round((v-f)*12);if(inch===12){f++;inch=0;}return f+"'-"+inch+'"';}
 const inFt=v=>v/12;
-function inFoot(px,py){for(let i=0;i<wings.length;i++){const x0=cur.xE[i],x1=cur.xE[i+1],f=wings[i].s,b=wings[i].s+wings[i].d;if(px>=x0&&px<=x1&&py>=f&&py<=b)return true;}return false;}
-function roomWalls(r){const e=0.3;return {L:!inFoot(r.x-e,r.y+r.h/2),R:!inFoot(r.x+r.w+e,r.y+r.h/2),F:!inFoot(r.x+r.w/2,r.y-e),B:!inFoot(r.x+r.w/2,r.y+r.h+e)};}
-function netDims(r){const w=roomWalls(r);const hw=s=>(s?walls.ext:walls.int)/24;return {nw:Math.max(0,r.w-hw(w.L)-hw(w.R)),nh:Math.max(0,r.h-hw(w.F)-hw(w.B)),w};}
-function roomArea(r){if(r.open)return r.w*r.h;const n=netDims(r);return n.nw*n.nh;}
+function inFoot(px,py){let inside=false;for(let i=0,j=footprint.length-1;i<footprint.length;j=i++){const xi=footprint[i][0],yi=footprint[i][1],xj=footprint[j][0],yj=footprint[j][1];if(((yi>py)!==(yj>py))&&(px<(xj-xi)*(py-yi)/(yj-yi)+xi))inside=!inside;}return inside;}
+// is a room edge (orient 'v'/'h' at `axis`, spanning a..b) lying on the outer outline? (used for migration)
+function sideExterior(orient,axis,a,b){const m=(a+b)/2,e=0.3;
+  return orient==='v' ? (!inFoot(axis-e,m)||!inFoot(axis+e,m)) : (!inFoot(m,axis-e)||!inFoot(m,axis+e));}
+// thickness (inches) of a wall lying along a room side, or 0 if that side is open. Exterior (outline) wins over interior.
+function wallThickOnSide(orient,axis,a,b){const lo=Math.min(a,b),hi=Math.max(a,b),m=(lo+hi)/2,tol=0.35;
+  for(let i=0;i<footprint.length;i++){const p=footprint[i],q=footprint[(i+1)%footprint.length];
+    if(orient==='v'&&Math.abs(p[0]-q[0])<1e-6&&Math.abs(p[0]-axis)<tol&&m>Math.min(p[1],q[1])-tol&&m<Math.max(p[1],q[1])+tol)return walls.ext;
+    if(orient==='h'&&Math.abs(p[1]-q[1])<1e-6&&Math.abs(p[1]-axis)<tol&&m>Math.min(p[0],q[0])-tol&&m<Math.max(p[0],q[0])+tol)return walls.ext;}
+  for(const w of iwalls)for(let i=0;i+1<w.length;i++){const p=w[i],q=w[i+1];
+    if(orient==='v'&&Math.abs(p[0]-q[0])<1e-6&&Math.abs(p[0]-axis)<tol&&m>Math.min(p[1],q[1])-tol&&m<Math.max(p[1],q[1])+tol)return walls.int;
+    if(orient==='h'&&Math.abs(p[1]-q[1])<1e-6&&Math.abs(p[1]-axis)<tol&&m>Math.min(p[0],q[0])-tol&&m<Math.max(p[0],q[0])+tol)return walls.int;}
+  return 0;}
+function roomWalls(r){return {L:!!wallThickOnSide('v',r.x,r.y,r.y+r.h),R:!!wallThickOnSide('v',r.x+r.w,r.y,r.y+r.h),
+  F:!!wallThickOnSide('h',r.y,r.x,r.x+r.w),B:!!wallThickOnSide('h',r.y+r.h,r.x,r.x+r.w)};}
+// net (inner clear) dimensions = gross minus half the thickness of whatever wall borders each side
+function netDims(r){const L=wallThickOnSide('v',r.x,r.y,r.y+r.h),R=wallThickOnSide('v',r.x+r.w,r.y,r.y+r.h),
+  F=wallThickOnSide('h',r.y,r.x,r.x+r.w),B=wallThickOnSide('h',r.y+r.h,r.x,r.x+r.w);
+  return {nw:Math.max(0,r.w-L/24-R/24),nh:Math.max(0,r.h-F/24-B/24),w:{L:!!L,R:!!R,F:!!F,B:!!B}};}
+function roomArea(r){if(r.poly)return Math.abs(polyArea(r.poly));if(r.open)return r.w*r.h;const n=netDims(r);return n.nw*n.nh;}
+// seed interior walls from the current room layout (each interior, non-outline edge → an editable wall), deduped
+function roomsToIWalls(){const r2=v=>Math.round(v*100)/100,map=new Map();
+  const add=(orient,axis,a,b)=>{if(sideExterior(orient,axis,a,b))return;
+    const lo=Math.min(a,b),hi=Math.max(a,b);if(hi-lo<0.3)return;
+    const k=orient+':'+r2(axis)+':'+r2(lo)+':'+r2(hi);
+    if(!map.has(k))map.set(k,orient==='v'?[[axis,lo],[axis,hi]]:[[lo,axis],[hi,axis]]);};
+  rooms.forEach(r=>{if(r.open)return;
+    add('v',r.x,r.y,r.y+r.h);add('v',r.x+r.w,r.y,r.y+r.h);
+    add('h',r.y,r.x,r.x+r.w);add('h',r.y+r.h,r.x,r.x+r.w);});
+  return [...map.values()];}
+// snap a wall point to the grid, onto nearby outer-wall lines, to existing junctions, and to right angles vs a reference
+function snapWallPoint(x,y,ref,alt){
+  let nx=snap(x),ny=snap(y);
+  if(alt)return [nx,ny];
+  const th=1.0;
+  for(let i=0;i<footprint.length;i++){const p=footprint[i],q=footprint[(i+1)%footprint.length];   // land on an outline edge
+    if(Math.abs(p[0]-q[0])<1e-6){if(Math.abs(nx-p[0])<=th&&ny>=Math.min(p[1],q[1])-th&&ny<=Math.max(p[1],q[1])+th)nx=p[0];}
+    else if(Math.abs(p[1]-q[1])<1e-6){if(Math.abs(ny-p[1])<=th&&nx>=Math.min(p[0],q[0])-th&&nx<=Math.max(p[0],q[0])+th)ny=p[1];}}
+  let best=null,bd=th;                                                                              // snap to a junction vertex
+  for(const w of iwalls)for(const p of w){const d=Math.hypot(nx-p[0],ny-p[1]);if(d<bd){bd=d;best=p;}}
+  for(const p of footprint){const d=Math.hypot(nx-p[0],ny-p[1]);if(d<bd){bd=d;best=p;}}
+  if(best){nx=best[0];ny=best[1];}
+  if(ref){if(Math.abs(nx-ref[0])<=1)nx=ref[0];if(Math.abs(ny-ref[1])<=1)ny=ref[1];}               // keep right angles
+  return [nx,ny];}
+// the rectangle enclosed by the nearest walls around a point (rays cast out to outline + interior walls)
+function enclosingRect(cx,cy){
+  const eps=0.05,V=[],H=[];
+  const addSeg=(p,q)=>{if(Math.abs(p[0]-q[0])<1e-6)V.push([p[0],Math.min(p[1],q[1]),Math.max(p[1],q[1])]);
+    else if(Math.abs(p[1]-q[1])<1e-6)H.push([p[1],Math.min(p[0],q[0]),Math.max(p[0],q[0])]);};
+  for(let i=0;i<footprint.length;i++)addSeg(footprint[i],footprint[(i+1)%footprint.length]);
+  for(const w of iwalls)for(let i=0;i+1<w.length;i++)addSeg(w[i],w[i+1]);
+  let L=-Infinity,R=Infinity,F=-Infinity,B=Infinity;
+  for(const[x,y0,y1]of V){if(cy>y0+eps&&cy<y1-eps){if(x<cx-eps&&x>L)L=x;if(x>cx+eps&&x<R)R=x;}}
+  for(const[y,x0,x1]of H){if(cx>x0+eps&&cx<x1-eps){if(y<cy-eps&&y>F)F=y;if(y>cy+eps&&y<B)B=y;}}
+  if(!isFinite(L)||!isFinite(R)||!isFinite(F)||!isFinite(B)||R-L<0.5||B-F<0.5)return null;
+  return {x:L,y:F,w:R-L,h:B-F};}
+// ---- enclosed-region detection: the true (possibly non-rectangular) shape of the walled space around a point ----
+function polyArea(p){let a=0;for(let i=0,j=p.length-1;i<p.length;j=i++)a+=(p[j][0]+p[i][0])*(p[j][1]-p[i][1]);return a/2;}
+function polyBBox(p){let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;for(const q of p){x0=Math.min(x0,q[0]);y0=Math.min(y0,q[1]);x1=Math.max(x1,q[0]);y1=Math.max(y1,q[1]);}return {x:x0,y:y0,w:x1-x0,h:y1-y0};}
+function polyCentroid(p){let a=0,cx=0,cy=0;for(let i=0,j=p.length-1;i<p.length;j=i++){const f=p[j][0]*p[i][1]-p[i][0]*p[j][1];a+=f;cx+=(p[j][0]+p[i][0])*f;cy+=(p[j][1]+p[i][1])*f;}a*=0.5;if(Math.abs(a)<1e-6){let x=0,y=0;p.forEach(q=>{x+=q[0];y+=q[1];});return [x/p.length,y/p.length];}return [cx/(6*a),cy/(6*a)];}
+function roomBBox(r){return r.poly?polyBBox(r.poly):{x:r.x,y:r.y,w:r.w,h:r.h};}
+// all wall segments (outline + interior) as axis-aligned records
+function wallSegs(){const S=[];const add=(p,q)=>{if(Math.abs(p[0]-q[0])<1e-6)S.push({v:true,x:p[0],a:Math.min(p[1],q[1]),b:Math.max(p[1],q[1])});
+  else if(Math.abs(p[1]-q[1])<1e-6)S.push({v:false,y:p[1],a:Math.min(p[0],q[0]),b:Math.max(p[0],q[0])});};
+  for(let i=0;i<footprint.length;i++)add(footprint[i],footprint[(i+1)%footprint.length]);
+  for(const w of iwalls)for(let i=0;i+1<w.length;i++)add(w[i],w[i+1]);return S;}
+// flood-fill the wall-line grid to get the exact rectilinear polygon of the space containing (cx,cy)
+function enclosedPolygon(cx,cy){
+  if(!inFoot(cx,cy))return null;
+  const S=wallSegs(),g=geom(),eps=1e-4;
+  const xs=new Set([g.minX,g.maxX]),ys=new Set([g.minY,g.maxY]);
+  for(const s of S){if(s.v){xs.add(s.x);ys.add(s.a);ys.add(s.b);}else{ys.add(s.y);xs.add(s.a);xs.add(s.b);}}
+  const X=[...xs].sort((a,b)=>a-b),Y=[...ys].sort((a,b)=>a-b),nc=X.length-1,nr=Y.length-1;
+  if(nc<1||nr<1)return null;
+  const inCell=(i,j)=>inFoot((X[i]+X[i+1])/2,(Y[j]+Y[j+1])/2);
+  const vWall=(x,a,b)=>S.some(s=>s.v&&Math.abs(s.x-x)<1e-3&&s.a<=a+eps&&s.b>=b-eps);
+  const hWall=(y,a,b)=>S.some(s=>!s.v&&Math.abs(s.y-y)<1e-3&&s.a<=a+eps&&s.b>=b-eps);
+  let ci=-1,cj=-1;for(let i=0;i<nc;i++)if(cx>=X[i]-eps&&cx<=X[i+1]+eps){ci=i;break;}
+  for(let j=0;j<nr;j++)if(cy>=Y[j]-eps&&cy<=Y[j+1]+eps){cj=j;break;}
+  if(ci<0||cj<0||!inCell(ci,cj))return null;
+  const key=(i,j)=>i+','+j,filled=new Set(),st=[[ci,cj]];
+  while(st.length){const[i,j]=st.pop();if(filled.has(key(i,j))||i<0||j<0||i>=nc||j>=nr||!inCell(i,j))continue;filled.add(key(i,j));
+    if(i+1<nc&&!vWall(X[i+1],Y[j],Y[j+1]))st.push([i+1,j]);
+    if(i-1>=0&&!vWall(X[i],Y[j],Y[j+1]))st.push([i-1,j]);
+    if(j+1<nr&&!hWall(Y[j+1],X[i],X[i+1]))st.push([i,j+1]);
+    if(j-1>=0&&!hWall(Y[j],X[i],X[i+1]))st.push([i,j-1]);}
+  if(!filled.size)return null;
+  // directed boundary edges (region kept on the left) → chain into the largest loop
+  const edges=[];
+  for(const k of filled){const[i,j]=k.split(',').map(Number),x0=X[i],x1=X[i+1],y0=Y[j],y1=Y[j+1];
+    if(!filled.has(key(i+1,j)))edges.push([[x1,y0],[x1,y1]]);
+    if(!filled.has(key(i-1,j)))edges.push([[x0,y1],[x0,y0]]);
+    if(!filled.has(key(i,j+1)))edges.push([[x1,y1],[x0,y1]]);
+    if(!filled.has(key(i,j-1)))edges.push([[x0,y0],[x1,y0]]);}
+  const pk=p=>p[0].toFixed(3)+','+p[1].toFixed(3),start=new Map();
+  edges.forEach((e,idx)=>{const k=pk(e[0]);if(!start.has(k))start.set(k,[]);start.get(k).push(idx);});
+  const used=new Array(edges.length).fill(false);let best=null,bestA=-1;
+  for(let s=0;s<edges.length;s++){if(used[s])continue;const loop=[];let idx=s,guard=0;
+    while(idx!=null&&!used[idx]&&guard++<edges.length+2){used[idx]=true;loop.push(edges[idx][0]);
+      const cands=start.get(pk(edges[idx][1]))||[];idx=cands.find(k=>!used[k]);}
+    if(loop.length>=4){const a=Math.abs(polyArea(loop));if(a>bestA){bestA=a;best=loop;}}}
+  if(!best||best.length<4)return null;
+  return simplifyPoly(best);
+}
+// snap a room to its enclosing walls, taking the true shape of that space
+function snapRoomToWalls(r){const c=r.poly?polyCentroid(r.poly):[r.x+r.w/2,r.y+r.h/2];
+  const poly=enclosedPolygon(c[0],c[1]);if(!poly)return false;
+  const bb=polyBBox(poly);r.poly=poly;r.x=bb.x;r.y=bb.y;r.w=bb.w;r.h=bb.h;return true;}
 
 /* ---------- tabs ---------- */
 const TABS=['rooms','openings','furniture','frame','plot','walls'];
@@ -367,10 +484,26 @@ TABS.forEach(t=>document.getElementById('tab-'+t).onclick=()=>setTab(t));
 /* ---------- frame editor ---------- */
 const panel=document.getElementById('panel');
 function buildFramePanel(){
-  panel.innerHTML=wings.map((s,i)=>`<div class="card"><h3>Wing ${NAME[i]}</h3>`+
-    [['w','Width',s.w],['d','Depth',s.d],['s','Setback',s.s]]
-    .map(([k,lbl,v])=>`<div class="fld"><label>${lbl}</label>`+
-      `<input type="number" data-wi="${i}" data-wk="${k}" value="${fmt(v)}" min="0" step="0.5"></div>`).join('')+`</div>`).join('');
+  const g=geom();
+  panel.innerHTML=`<div class="card" style="max-width:560px">
+    <h3>Building outline</h3>
+    <p style="margin:.2rem 0 .6rem;font-size:.82rem;line-height:1.5;color:var(--ink-soft)">
+      The outer wall is a free polygon. Turn on editing, then on the plan:
+      <b>drag</b> a red corner to move it (snaps to the grid &amp; square corners),
+      click a blue <b>+</b> on an edge to add a corner, and <b>double-click</b> a corner to delete it.
+      Hold <b>Alt</b> while dragging to move off-grid / off-angle.
+      To carve a <b>U/notch</b>: add two corners on a straight wall, then pull them in.
+    </p>
+    <button class="btn" id="editoutlinebtn" style="${editOutline?'background:var(--blue);color:#fff':''}">${editOutline?'✓ Editing — click to finish':'✏️ Edit outline on plan'}</button>
+    <span style="margin-left:10px;font-size:.82rem;color:var(--ink-soft)">Corners: ${footprint.length}</span>
+    <button class="btn ghost" id="rectoutlinebtn" style="margin-left:10px">Reset to rectangle</button>
+  </div>`;
+  document.getElementById('editoutlinebtn').onclick=()=>{editOutline=!editOutline;buildFramePanel();renderPlan();};
+  document.getElementById('rectoutlinebtn').onclick=()=>{
+    if(!confirm('Replace the outline with a plain rectangle around its current extent?'))return;
+    footprint=[[g.minX,g.minY],[g.maxX,g.minY],[g.maxX,g.maxY],[g.minX,g.maxY]];
+    renderPlan();buildFramePanel();scheduleSave();
+  };
 }
 buildFramePanel();
 panel.addEventListener('input',e=>{
@@ -398,6 +531,19 @@ buildPlotPanel();
 function buildWallsPanel(){
   document.getElementById('w-ext').value=fmt(walls.ext);
   document.getElementById('w-int').value=fmt(walls.int);
+  const card=document.getElementById('iwall-card');
+  if(!card)return;
+  card.innerHTML=`<h3>Interior walls</h3>
+    <p style="margin:.2rem 0 .6rem;font-size:.82rem;line-height:1.5;color:var(--ink-soft)">
+      Interior walls are free-drawn. <b>Draw a wall</b> then click points on the plan (snaps to grid, square,
+      and onto outer walls); <b>double-click</b> to finish. In <b>Edit</b> mode, drag a wall's dots to move,
+      click a <b>+</b> to add a point, double-click a dot to delete. Hold <b>Alt</b> for free placement.
+      A room's inner size measures against whatever walls border it — so one drawn wall in a corner completes a room.</p>
+    <button class="btn" id="drawwallbtn" style="${drawWall?'background:var(--red);color:#fff':''}">${drawWall?'✓ Drawing — double-click to finish':'✏️ Draw a wall'}</button>
+    <button class="btn ghost" id="editwallbtn" style="margin-left:8px;${editWalls?'background:var(--blue);color:#fff':''}">${editWalls?'✓ Editing walls':'Edit walls'}</button>
+    <span style="margin-left:10px;font-size:.82rem;color:var(--ink-soft)">Walls: ${iwalls.length}</span>`;
+  document.getElementById('drawwallbtn').onclick=()=>{drawWall=drawWall?null:[];if(drawWall)editWalls=false;buildWallsPanel();renderPlan();};
+  document.getElementById('editwallbtn').onclick=()=>{editWalls=!editWalls;if(editWalls)drawWall=null;buildWallsPanel();renderPlan();};
 }
 [['w-ext','ext'],['w-int','int']].forEach(([id,key])=>{
   document.getElementById(id).addEventListener('input',e=>{
@@ -407,11 +553,29 @@ function buildWallsPanel(){
 buildWallsPanel();
 
 /* ---------- geometry helpers ---------- */
+// drop duplicate & collinear corners so the editable polygon stays clean
+function simplifyPoly(pts){
+  let p=pts.filter((pt,i)=>{const q=pts[(i-1+pts.length)%pts.length];return Math.abs(pt[0]-q[0])>1e-6||Math.abs(pt[1]-q[1])>1e-6;});
+  const out=[];
+  for(let i=0;i<p.length;i++){const a=p[(i-1+p.length)%p.length],b=p[i],c=p[(i+1)%p.length];
+    const cr=(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);
+    if(Math.abs(cr)>1e-6)out.push(b);}
+  return out.length>=3?out:p;
+}
+// convert the legacy stacked-wings frame into an outline polygon (for migration / seeding)
+function wingsToPolygon(ws){
+  const xE=[0];ws.forEach(s=>xE.push(xE[xE.length-1]+(+s.w||0)));
+  let pts=[];
+  for(let i=0;i<ws.length;i++){pts.push([xE[i],(+ws[i].s||0)+(+ws[i].d||0)]);pts.push([xE[i+1],(+ws[i].s||0)+(+ws[i].d||0)]);}
+  for(let i=ws.length-1;i>=0;i--){pts.push([xE[i+1],(+ws[i].s||0)]);pts.push([xE[i],(+ws[i].s||0)]);}
+  return simplifyPoly(pts).map(p=>[+p[0],+p[1]]);
+}
+// footprint area via the shoelace formula
+function footArea(){let a=0;for(let i=0,j=footprint.length-1;i<footprint.length;j=i++)a+=(footprint[j][0]+footprint[i][0])*(footprint[j][1]-footprint[i][1]);return Math.abs(a/2);}
 function geom(){
-  const xE=[0];wings.forEach(s=>xE.push(xE[xE.length-1]+s.w));
-  const TW=xE[xE.length-1];
-  const MD=Math.max(...wings.map(s=>s.s+s.d),1);
-  return {xE,TW,MD};
+  const xs=footprint.map(p=>p[0]),ys=footprint.map(p=>p[1]);
+  const minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
+  return {minX,maxX,minY,maxY,TW:maxX-minX,MD:maxY-minY};
 }
 const fx=x=>M_LEFT+(x+cur.offX)*PX;       // building x → screen (offset within lot)
 const fyR=r=>M_TOP+(cur.yMax-r)*PX;       // building y from front → screen
@@ -419,12 +583,12 @@ const fyR=r=>M_TOP+(cur.yMax-r)*PX;       // building y from front → screen
 /* ---------- plan render ---------- */
 function renderPlan(){
   while(svg.firstChild)svg.removeChild(svg.firstChild);
-  const {xE,TW,MD}=geom();
-  const offX=plot.pw-plot.offR-TW;     // building left edge from lot left
+  const {TW,MD,minX,maxX,minY,maxY}=geom();
+  const offX=plot.pw-plot.offR-maxX;   // pin the frame's right edge to the right setback
   const offF=plot.offF;                // building front from lot front
   const yMax=plot.pd-offF;             // building-y at lot rear (top of drawing)
-  cur={TW,MD,xE,offX,offF,yMax,pw:plot.pw,pd:plot.pd};
-  const area=wings.reduce((a,s)=>a+s.w*s.d,0);
+  cur={TW,MD,minX,maxX,minY,maxY,offX,offF,yMax,pw:plot.pw,pd:plot.pd};
+  const area=footArea();
   const vbW=M_LEFT+plot.pw*PX+M_RIGHT, vbH=M_TOP+plot.pd*PX+M_BOT;
   svg.setAttribute('viewBox',`0 0 ${vbW} ${vbH}`);
   document.getElementById('envmeta').textContent=
@@ -439,36 +603,34 @@ function renderPlan(){
   for(let f=0;f<=plot.pw;f+=1)svg.appendChild(el('line',Object.assign({x1:fx(xL+f),y1:fyR(yF),x2:fx(xL+f),y2:fyR(yB)},gLine(f))));
   for(let f=0;f<=plot.pd;f+=1)svg.appendChild(el('line',Object.assign({x1:fx(xL),y1:fyR(yF+f),x2:fx(xR),y2:fyR(yF+f)},gLine(f))));
 
-  // wing floor tints + outline points + letters
-  wings.forEach((s,i)=>svg.appendChild(el('rect',{x:fx(xE[i]),y:fyR(s.s+s.d),width:s.w*PX,height:s.d*PX,
-    fill:FILL[i],'fill-opacity':.35,stroke:'#C2C8CD','stroke-width':1})));
-  let pts=[];
-  for(let i=0;i<wings.length;i++){pts.push([xE[i],wings[i].s+wings[i].d]);pts.push([xE[i+1],wings[i].s+wings[i].d]);}
-  for(let i=wings.length-1;i>=0;i--){pts.push([xE[i+1],wings[i].s]);pts.push([xE[i],wings[i].s]);}
-  wings.forEach((s,i)=>svg.appendChild(txt(fx(xE[i])+11,fyR(s.s+s.d)+16,'winglet',NAME[i],'start')));
+  // footprint floor tint (the interior of the outline polygon)
+  const pts=footprint;
+  const footD="M "+pts.map(p=>fx(p[0])+" "+fyR(p[1])).join(" L ")+" Z";
+  svg.appendChild(el('path',{d:footD,fill:FILL[0],'fill-opacity':.3,stroke:'#C2C8CD','stroke-width':1}));
 
   // (lot lines, dimensions & front label are drawn after rooms, below)
 
 
-  // rooms — pass 1: floor fills (+ open-space outline)
+  // rooms — pass 1: floor fills (polygon if the room was shaped to its walls, else a rectangle)
   rooms.forEach((r,i)=>{
+    if(r.poly){
+      const d="M "+r.poly.map(p=>fx(p[0])+" "+fyR(p[1])).join(" L ")+" Z";
+      const path=el('path',{d,fill:r.color,'fill-opacity':i===selected?.34:.18,'data-room':i});
+      if(i===selected)path.setAttribute('class','selected');
+      svg.appendChild(path);
+      return;
+    }
     const x=fx(r.x), y=fyR(r.y+r.h), pxW=r.w*PX, pxH=r.h*PX;
     const rect=el('rect',{x,y,width:pxW,height:pxH,fill:r.color,'fill-opacity':i===selected?.34:.18,'data-room':i});
     if(i===selected)rect.setAttribute('class','selected');
     svg.appendChild(rect);
     if(r.open)svg.appendChild(el('rect',{x,y,width:pxW,height:pxH,fill:'none',stroke:r.color,'stroke-width':2,'stroke-dasharray':'6 4'}));
   });
-  // rooms — pass 2: interior partition bands (exterior sides handled by the shell)
-  const it=inFt(walls.int);
-  const band=(bx0,by0,bx1,by1)=>svg.appendChild(el('rect',{x:fx(bx0),y:fyR(by1),width:(bx1-bx0)*PX,height:(by1-by0)*PX,fill:'var(--wall)'}));
-  rooms.forEach(r=>{
-    if(r.open)return;
-    const w=roomWalls(r);
-    if(!w.L)band(r.x-it/2,r.y-it/2,r.x+it/2,r.y+r.h+it/2);
-    if(!w.R)band(r.x+r.w-it/2,r.y-it/2,r.x+r.w+it/2,r.y+r.h+it/2);
-    if(!w.F)band(r.x-it/2,r.y-it/2,r.x+r.w+it/2,r.y+it/2);
-    if(!w.B)band(r.x-it/2,r.y+r.h-it/2,r.x+r.w+it/2,r.y+r.h+it/2);
-  });
+  // interior walls — free-drawn polylines, stroked at the interior wall thickness
+  const itPx=Math.max(1,walls.int/12*PX);
+  iwalls.forEach(w=>{if(w.length<2)return;
+    svg.appendChild(el('path',{d:"M "+w.map(p=>fx(p[0])+" "+fyR(p[1])).join(" L "),
+      fill:'none',stroke:'var(--wall)','stroke-width':itPx,'stroke-linecap':'square','stroke-linejoin':'miter'}));});
   // exterior wall shell (along footprint outline)
   svg.appendChild(el('path',{d:"M "+pts.map(p=>fx(p[0])+" "+fyR(p[1])).join(" L ")+" Z",
     fill:'none',stroke:'var(--ink)','stroke-width':Math.max(1.5,walls.ext/12*PX),'stroke-linejoin':'miter'}));
@@ -476,6 +638,11 @@ function renderPlan(){
   rooms.forEach((r,i)=>{
     if(i!==selected)return;
     const col=r.color, pxW=r.w*PX, pxH=r.h*PX;
+    if(r.poly){   // polygon room: dashed outline only (reshape via right-click → Snap to walls)
+      svg.appendChild(el('path',{d:"M "+r.poly.map(p=>fx(p[0])+" "+fyR(p[1])).join(" L ")+" Z",
+        fill:'none',stroke:col,'stroke-width':2,'stroke-dasharray':'5 3'}));
+      return;
+    }
     svg.appendChild(el('rect',{x:fx(r.x),y:fyR(r.y+r.h),width:pxW,height:pxH,
       fill:'none',stroke:col,'stroke-width':2,'stroke-dasharray':'5 3'}));
     [['fl',r.x,r.y],['fr',r.x+r.w,r.y],['bl',r.x,r.y+r.h],['br',r.x+r.w,r.y+r.h]].forEach(([c,hx,hr])=>{
@@ -490,23 +657,25 @@ function renderPlan(){
 
   // rooms — pass 4: name + dimension labels, drawn LAST so they sit on top of furniture & openings
   rooms.forEach((r)=>{
-    const pxW=r.w*PX, pxH=r.h*PX;
-    const cx=fx(r.x+r.w/2), cy=fyR(r.y+r.h/2);
-    const nd=netDims(r);
-    const a=r.open?r.w*r.h:nd.nw*nd.nh;
-    const di=deltaInfo(a,r.desired);
-    const dimW=r.open?ft(r.w):ftIn(nd.nw), dimD=r.open?ft(r.h):ftIn(nd.nh);
-    const oneLine=dimW+"×"+dimD;
-    const wide=oneLine.length*6.6+4<=pxW;                                                 // room fits the whole dim on one line
-    const lineH=13;
+    const bb=roomBBox(r), pxW=bb.w*PX, pxH=bb.h*PX, lineH=13;
     const maxLines=Math.max(1,Math.floor((pxH-2)/lineH));
-    // name + dimensions always show (even if they overflow a tiny room); delta & sf only when there's room
-    const essential=[{c:'rmname',t:r.name}];
-    if(wide)essential.push({c:'rmdim',t:oneLine});
-    else{essential.push({c:'rmdim',t:dimW+"×"});essential.push({c:'rmdim',t:dimD});}      // too narrow — always wrap after the ×
-    const optional=[];
-    if(di.show)optional.push({c:'rmdelta',t:di.t,fill:di.c});
-    if(wide)optional.push({c:'rmsf',t:fmt(Math.round(a*10)/10)+" sf"});                    // sf is secondary — only when dims fit on one line
+    const essential=[{c:'rmname',t:r.name}], optional=[];
+    let cx,cy;
+    if(r.poly){                                    // shaped room: name + area at the polygon's centre (no W×D)
+      const c=polyCentroid(r.poly);cx=fx(c[0]);cy=fyR(c[1]);
+      const a=Math.abs(polyArea(r.poly)),di=deltaInfo(a,r.desired);
+      essential.push({c:'rmsf',t:fmt(Math.round(a))+" sf"});
+      if(di.show)optional.push({c:'rmdelta',t:di.t,fill:di.c});
+    }else{
+      cx=fx(r.x+r.w/2);cy=fyR(r.y+r.h/2);
+      const nd=netDims(r), a=r.open?r.w*r.h:nd.nw*nd.nh, di=deltaInfo(a,r.desired);
+      const dimW=r.open?ft(r.w):ftIn(nd.nw), dimD=r.open?ft(r.h):ftIn(nd.nh), oneLine=dimW+"×"+dimD;
+      const wide=oneLine.length*6.6+4<=pxW;
+      if(wide)essential.push({c:'rmdim',t:oneLine});
+      else{essential.push({c:'rmdim',t:dimW+"×"});essential.push({c:'rmdim',t:dimD});}
+      if(di.show)optional.push({c:'rmdelta',t:di.t,fill:di.c});
+      if(wide)optional.push({c:'rmsf',t:fmt(Math.round(a*10)/10)+" sf"});
+    }
     const show=essential.slice();
     for(const o of optional)if(show.length<maxLines)show.push(o);
     show.forEach((ln,k)=>{
@@ -534,34 +703,66 @@ function renderPlan(){
   tk(pdx-4,fyR(yF),pdx+4,fyR(yF),pcol);tk(pdx-4,fyR(yB),pdx+4,fyR(yB),pcol);
   dimT(pdx-6,fyR((yF+yB)/2),ft(cur.pd)+" LOT",pcol,-90);
 
-  // frame width (in front yard) with per-wing ticks
+  // frame width (in front yard)
   const wy=fyR(-Math.min(cur.offF*0.5,12));
-  svg.appendChild(el('line',{x1:fx(0),y1:wy,x2:fx(cur.TW),y2:wy,stroke:'var(--red)','stroke-width':1}));
-  for(let i=0;i<=wings.length;i++)tk(fx(cur.xE[i]),wy-4,fx(cur.xE[i]),wy+4);
-  dimT(fx(cur.TW/2),wy-6,ft(cur.TW));
-  wings.forEach((s,i)=>dimT(fx((cur.xE[i]+cur.xE[i+1])/2),wy+14,ft(s.w)));
+  svg.appendChild(el('line',{x1:fx(cur.minX),y1:wy,x2:fx(cur.maxX),y2:wy,stroke:'var(--red)','stroke-width':1}));
+  tk(fx(cur.minX),wy-4,fx(cur.minX),wy+4);tk(fx(cur.maxX),wy-4,fx(cur.maxX),wy+4);
+  dimT(fx((cur.minX+cur.maxX)/2),wy-6,ft(cur.TW));
 
   // front setback (right side yard, vertical)
-  const fsx=fx(cur.TW)+Math.min((fx(xR)-fx(cur.TW))*0.5,16);
+  const fsx=fx(cur.maxX)+Math.min((fx(xR)-fx(cur.maxX))*0.5,16);
   svg.appendChild(el('line',{x1:fsx,y1:fyR(yF),x2:fsx,y2:fyR(0),stroke:'var(--red)','stroke-width':1,'stroke-dasharray':'4 3'}));
   tk(fsx-4,fyR(yF),fsx+4,fyR(yF));tk(fsx-4,fyR(0),fsx+4,fyR(0));
   dimT(fsx+4,(fyR(yF)+fyR(0))/2,ft(cur.offF)+" front",'var(--red)',-90);
 
   // right setback (horizontal near front)
   const rsy=fyR(8);
-  svg.appendChild(el('line',{x1:fx(cur.TW),y1:rsy,x2:fx(xR),y2:rsy,stroke:'var(--red)','stroke-width':1,'stroke-dasharray':'4 3'}));
-  tk(fx(cur.TW),rsy-4,fx(cur.TW),rsy+4);tk(fx(xR),rsy-4,fx(xR),rsy+4);
-  dimT((fx(cur.TW)+fx(xR))/2,rsy-5,ft(plot.offR));
-
-  // wing front-setback callouts
-  wings.forEach((s,i)=>{if(s.s>0){const cx=fx((cur.xE[i]+cur.xE[i+1])/2);
-    svg.appendChild(el('line',{x1:cx,y1:fyR(0),x2:cx,y2:fyR(s.s),stroke:'var(--red)','stroke-width':1,'stroke-dasharray':'4 3'}));
-    tk(cx-5,fyR(0),cx+5,fyR(0));tk(cx-5,fyR(s.s),cx+5,fyR(s.s));
-    dimT(cx,(fyR(0)+fyR(s.s))/2+4,ft(s.s));}});
+  svg.appendChild(el('line',{x1:fx(cur.maxX),y1:rsy,x2:fx(xR),y2:rsy,stroke:'var(--red)','stroke-width':1,'stroke-dasharray':'4 3'}));
+  tk(fx(cur.maxX),rsy-4,fx(cur.maxX),rsy+4);tk(fx(xR),rsy-4,fx(xR),rsy+4);
+  dimT((fx(cur.maxX)+fx(xR))/2,rsy-5,ft(plot.offR));
 
   // FRONT / STREET at lot front
   svg.appendChild(el('line',{x1:fx(xL),y1:fyR(yF)+22,x2:fx(xR),y2:fyR(yF)+22,stroke:'var(--ink-soft)','stroke-width':.6}));
   svg.appendChild(txt((fx(xL)+fx(xR))/2,fyR(yF)+18,'frontlabel',"FRONT / STREET"));
+
+  // outline-editing handles (draggable corners + "+" add-points on each edge) — on top of everything
+  if(editOutline)drawOutline();
+  if(editWalls||drawWall)drawIWallEdit();
+}
+
+// interior-wall edit handles: draggable vertices (data-iwpt="wi,pi"), edge add-points (data-iwadd="wi,si"),
+// plus the rubber-band preview of a wall being drawn
+function drawIWallEdit(){
+  if(editWalls)iwalls.forEach((w,wi)=>{
+    for(let i=0;i+1<w.length;i++){const p=w[i],q=w[i+1],mx=(p[0]+q[0])/2,my=(p[1]+q[1])/2;
+      const add=el('circle',{cx:fx(mx),cy:fyR(my),r:6,fill:'var(--wall)',stroke:'#fff','stroke-width':1.5,'data-iwadd':wi+','+i});
+      add.style.cursor='copy';svg.appendChild(add);
+      const plus=txt(fx(mx),fyR(my)+3.4,'','+');plus.setAttribute('fill','#fff');plus.setAttribute('font-size','11');plus.setAttribute('font-weight','700');plus.style.pointerEvents='none';svg.appendChild(plus);}
+    w.forEach((p,pi)=>{const h=el('circle',{cx:fx(p[0]),cy:fyR(p[1]),r:5.5,fill:'#fff',stroke:'var(--ink)','stroke-width':2,'data-iwpt':wi+','+pi});
+      h.style.cursor='move';svg.appendChild(h);});
+  });
+  if(drawWall&&drawWall.length){
+    if(drawWall.length>1)svg.appendChild(el('path',{d:"M "+drawWall.map(p=>fx(p[0])+" "+fyR(p[1])).join(" L "),fill:'none',stroke:'var(--wall)','stroke-width':Math.max(1,walls.int/12*PX),'stroke-opacity':.6,'stroke-dasharray':'5 3'}));
+    drawWall.forEach(p=>svg.appendChild(el('circle',{cx:fx(p[0]),cy:fyR(p[1]),r:4,fill:'var(--red)'})));
+  }
+}
+
+// draggable corner squares (data-fpt) and edge midpoint add-buttons (data-fadd)
+function drawOutline(){
+  const n=footprint.length;
+  for(let i=0;i<n;i++){
+    const p=footprint[i],q=footprint[(i+1)%n];
+    const mx=(p[0]+q[0])/2,my=(p[1]+q[1])/2;
+    svg.appendChild(el('line',{x1:fx(p[0]),y1:fyR(p[1]),x2:fx(q[0]),y2:fyR(q[1]),stroke:'var(--blue)','stroke-width':1.5,'stroke-opacity':.55}));
+    const add=el('circle',{cx:fx(mx),cy:fyR(my),r:7,fill:'var(--blue)',stroke:'#fff','stroke-width':1.5,'data-fadd':i});
+    add.style.cursor='copy';svg.appendChild(add);
+    const plus=txt(fx(mx),fyR(my)+3.6,'','+');plus.setAttribute('fill','#fff');plus.setAttribute('font-size','12');plus.setAttribute('font-weight','700');plus.style.pointerEvents='none';svg.appendChild(plus);
+  }
+  for(let i=0;i<n;i++){
+    const p=footprint[i];
+    const h=el('rect',{x:fx(p[0])-5,y:fyR(p[1])-5,width:10,height:10,fill:'#fff',stroke:'var(--red)','stroke-width':2,'data-fpt':i});
+    h.style.cursor='move';svg.appendChild(h);
+  }
 }
 
 function deltaInfo(area,des){
@@ -626,8 +827,9 @@ function wallSegments(){
     add('v',r.x,r.y,r.y+r.h); add('v',r.x+r.w,r.y,r.y+r.h);
     add('h',r.y,r.x,r.x+r.w); add('h',r.y+r.h,r.x,r.x+r.w);
   });
-  const xE=cur.xE||[];
-  wings.forEach((s,i)=>{const x0=xE[i],x1=xE[i+1];add('v',x0,s.s,s.s+s.d);add('v',x1,s.s,s.s+s.d);add('h',s.s,x0,x1);add('h',s.s+s.d,x0,x1);});
+  for(let i=0;i<footprint.length;i++){const p=footprint[i],q=footprint[(i+1)%footprint.length];
+    if(Math.abs(p[0]-q[0])<1e-6)add('v',p[0],p[1],q[1]);                 // vertical outline edge
+    else if(Math.abs(p[1]-q[1])<1e-6)add('h',p[1],p[0],q[0]);}          // horizontal outline edge
   return segs;
 }
 // snap an opening (given its center cx,cy in ft and length) to the nearest wall; returns {orient,x,y} or null
@@ -758,6 +960,8 @@ svg.addEventListener('pointerdown',e=>{
     if(drag){
       if(drag.kind==='opening')Object.assign(openings[drag.idx],drag.o);
       else if(drag.kind==='furn')Object.assign(furniture[drag.idx],drag.o);
+      else if(drag.kind==='fpt')footprint[drag.idx]=drag.o;
+      else if(drag.kind==='iwpt')iwalls[drag.wi][drag.pi]=drag.o;
       else{const o=drag.o,r=rooms[drag.idx];r.x=o.x;r.y=o.y;r.w=o.w;r.h=o.h;}
       drag=null;renderPlan();
     }
@@ -776,6 +980,8 @@ svg.addEventListener('pointerdown',e=>{
       if(drag){                                  // undo any move/resize this press started
         if(drag.kind==='opening')Object.assign(openings[drag.idx],drag.o);
         else if(drag.kind==='furn')Object.assign(furniture[drag.idx],drag.o);
+        else if(drag.kind==='fpt')footprint[drag.idx]=drag.o;
+        else if(drag.kind==='iwpt')iwalls[drag.wi][drag.pi]=drag.o;
         else if(drag.kind==='room'){const o=drag.o,r=rooms[drag.idx];r.x=o.x;r.y=o.y;r.w=o.w;r.h=o.h;}
         drag=null;renderPlan();
       }
@@ -793,6 +999,29 @@ svg.addEventListener('pointerdown',e=>{
     placeOpening(feetFromEvent(e));
     try{svg.setPointerCapture(e.pointerId);}catch(_){}
     e.preventDefault();return;
+  }
+  if(drawWall){                                     // drawing a new interior wall — each click drops a point
+    const p=feetFromEvent(e),ref=drawWall[drawWall.length-1]||null;
+    drawWall.push(snapWallPoint(p.x,p.r,ref,e.altKey));renderPlan();e.preventDefault();return;
+  }
+  if(editOutline){                                  // outline edit mode: drag a corner, or add one on an edge
+    const fp=e.target.getAttribute('data-fpt');
+    if(fp!=null){const p=feetFromEvent(e);drag={kind:'fpt',idx:+fp,sx:p.x,sr:p.r,o:footprint[+fp].slice()};
+      try{svg.setPointerCapture(e.pointerId);}catch(_){}e.preventDefault();return;}
+    const fa=e.target.getAttribute('data-fadd');
+    if(fa!=null){const i=+fa,q=footprint[(i+1)%footprint.length];
+      footprint.splice(i+1,0,[snap((footprint[i][0]+q[0])/2),snap((footprint[i][1]+q[1])/2)]);
+      renderPlan();scheduleSave();e.preventDefault();return;}
+  }
+  if(editWalls){                                    // interior-wall edit mode: drag a point, or add one on a segment
+    const iw=e.target.getAttribute('data-iwpt');
+    if(iw!=null){const[wi,pi]=iw.split(',').map(Number);const p=feetFromEvent(e);
+      drag={kind:'iwpt',wi,pi,sx:p.x,sr:p.r,o:iwalls[wi][pi].slice()};
+      try{svg.setPointerCapture(e.pointerId);}catch(_){}e.preventDefault();return;}
+    const ia=e.target.getAttribute('data-iwadd');
+    if(ia!=null){const[wi,si]=ia.split(',').map(Number),w=iwalls[wi];
+      w.splice(si+1,0,[snap((w[si][0]+w[si+1][0])/2),snap((w[si][1]+w[si+1][1])/2)]);
+      renderPlan();scheduleSave();e.preventDefault();return;}
   }
   const t=e.target;
   const fi=t.getAttribute('data-furn');
@@ -836,7 +1065,8 @@ svg.addEventListener('pointerdown',e=>{
       drag={kind:'room',type:'resize',idx,corner,sx:p.x,sr:p.r,o:Object.assign({},rooms[idx])};
     }else if(idx===selected){                       // already selected → press-and-drag to move
       const p=feetFromEvent(e);
-      drag={kind:'room',type:'move',idx,corner:null,sx:p.x,sr:p.r,o:Object.assign({},rooms[idx])};
+      drag={kind:'room',type:'move',idx,corner:null,sx:p.x,sr:p.r,o:Object.assign({},rooms[idx]),
+        origPoly:rooms[idx].poly?rooms[idx].poly.map(q=>q.slice()):null};
     }else{                                           // first touch just selects — prevents accidental moves
       selected=idx;renderPlan();
     }
@@ -873,6 +1103,19 @@ svg.addEventListener('pointermove',e=>{
   if(!drag)return;
   gMoved=true;
   const p=feetFromEvent(e),dx=p.x-drag.sx,dr=p.r-drag.sr;
+  if(drag.kind==='fpt'){                                              // drag an outline corner
+    let nx=snap(drag.o[0]+dx),ny=snap(drag.o[1]+dr);
+    const n=footprint.length,pv=footprint[(drag.idx-1+n)%n],nv=footprint[(drag.idx+1)%n];
+    if(!e.altKey){                                                    // snap to a neighbour's axis → keep right angles
+      if(Math.abs(nx-pv[0])<=1)nx=pv[0];else if(Math.abs(nx-nv[0])<=1)nx=nv[0];
+      if(Math.abs(ny-pv[1])<=1)ny=pv[1];else if(Math.abs(ny-nv[1])<=1)ny=nv[1];
+    }
+    footprint[drag.idx]=[nx,ny];renderPlan();return;
+  }
+  if(drag.kind==='iwpt'){                                             // drag an interior-wall point
+    const w=iwalls[drag.wi],ref=w[drag.pi-1]||w[drag.pi+1]||null;
+    w[drag.pi]=snapWallPoint(drag.o[0]+dx,drag.o[1]+dr,ref,e.altKey);renderPlan();return;
+  }
   if(drag.kind==='furn'){
     const fitem=furniture[drag.idx],so=drag.o;
     if(drag.mode==='resize'){
@@ -906,8 +1149,10 @@ svg.addEventListener('pointermove',e=>{
   }
   const o=drag.o,r=rooms[drag.idx];
   if(drag.type==='move'){
-    r.x=clamp(snap(o.x+dx),-cur.offX,(cur.pw-cur.offX)-o.w);
-    r.y=clamp(snap(o.y+dr),-cur.offF,(cur.pd-cur.offF)-o.h);
+    const nx=clamp(snap(o.x+dx),-cur.offX,(cur.pw-cur.offX)-o.w);
+    const ny=clamp(snap(o.y+dr),-cur.offF,(cur.pd-cur.offF)-o.h);
+    if(drag.origPoly){const ddx=nx-o.x,ddy=ny-o.y;r.poly=drag.origPoly.map(p=>[p[0]+ddx,p[1]+ddy]);}  // translate the shape
+    r.x=nx;r.y=ny;
   }else{
     let x0=o.x,x1=o.x+o.w,y0=o.y,y1=o.y+o.h;
     if(drag.corner.includes('l'))x0=clamp(snap(o.x+dx),-cur.offX,x1-1);
@@ -924,7 +1169,7 @@ function endPointer(e){
   clearTimeout(lpTimer);lpTimer=null;
   if(pointers.size<2)pinch=null;
   if(panP&&e.pointerId===panP.id)panP=null;
-  if(drag){const k=drag.kind;drag=null;renderList();if(k==='opening')renderOpenings();if(k==='furn')renderFurniture();scheduleSave();}
+  if(drag){const k=drag.kind;drag=null;renderList();if(k==='opening')renderOpenings();if(k==='furn')renderFurniture();if(k==='fpt')buildFramePanel();if(k==='iwpt')buildWallsPanel();scheduleSave();}
   if(pointers.size===0&&!gMoved&&Date.now()-gDownT<300){   // double-tap empty/room → reset zoom
     if(Date.now()-lastTapT<300&&Math.hypot(e.clientX-lastTapX,e.clientY-lastTapY)<30){resetView();lastTapT=0;}
     else{lastTapT=Date.now();lastTapX=e.clientX;lastTapY=e.clientY;}
@@ -932,13 +1177,29 @@ function endPointer(e){
 }
 svg.addEventListener('pointerup',endPointer);
 svg.addEventListener('pointercancel',endPointer);
+svg.addEventListener('dblclick',e=>{
+  if(drawWall){                                       // finish the wall being drawn
+    while(drawWall.length>=2&&Math.abs(drawWall[drawWall.length-1][0]-drawWall[drawWall.length-2][0])<1e-6&&Math.abs(drawWall[drawWall.length-1][1]-drawWall[drawWall.length-2][1])<1e-6)drawWall.pop();
+    if(drawWall.length>=2)iwalls.push(drawWall);
+    drawWall=null;renderPlan();buildWallsPanel();scheduleSave();e.preventDefault();return;
+  }
+  if(editOutline){                                    // double-click an outline corner to delete it
+    const fp=e.target.getAttribute&&e.target.getAttribute('data-fpt');
+    if(fp!=null&&footprint.length>3){footprint.splice(+fp,1);renderPlan();buildFramePanel();scheduleSave();e.preventDefault();}return;
+  }
+  if(editWalls){                                      // double-click an interior-wall point to delete it
+    const iw=e.target.getAttribute&&e.target.getAttribute('data-iwpt');
+    if(iw!=null){const[wi,pi]=iw.split(',').map(Number),w=iwalls[wi];w.splice(pi,1);if(w.length<2)iwalls.splice(wi,1);renderPlan();buildWallsPanel();scheduleSave();e.preventDefault();}return;
+  }
+});
 document.addEventListener('keydown',e=>{
   if(e.key==='r'||e.key==='R'){                    // rotate the selected furniture 90°
     if(selectedFurn!=null){furniture[selectedFurn].rot=((furniture[selectedFurn].rot||0)+90)%360;renderFurniture();renderPlan();scheduleSave();}
     return;
   }
   if(e.key!=='Escape')return;
-  if(placeTool||placeFurn){placeTool=null;placeFurn=null;updateToolButtons();}
+  if(drawWall){drawWall=null;buildWallsPanel();renderPlan();}
+  else if(placeTool||placeFurn){placeTool=null;placeFurn=null;updateToolButtons();}
   else if(selectedFurn!=null){selectedFurn=null;renderPlan();}
   else if(selectedOpening!=null){selectedOpening=null;renderPlan();}
   else if(selected!=null){selected=null;renderPlan();}
@@ -973,7 +1234,7 @@ function updateComputed(){
   updateSummary();
 }
 function updateSummary(){
-  const foot=wings.reduce((a,s)=>a+s.w*s.d,0);
+  const foot=footArea();
   let grossWalled=0,netWalled=0,openSum=0;
   rooms.forEach(r=>{if(r.open)openSum+=r.w*r.h;else{grossWalled+=r.w*r.h;netWalled+=roomArea(r);}});
   const rem=foot-grossWalled;
@@ -1089,9 +1350,14 @@ function renderCtx(panel){
       FURN_ORDER.map(t=>`<button data-act="addfurn" data-type="${t}">${FURN[t].lbl}</button>`).join('')+
       `</div><button data-act="back">‹ Back</button>`;
   }else{
-    h=`<div class="hd">Add here</div><button data-act="adddoor">＋ Door</button>`+
+    h=`<div class="hd">Add here</div><button data-act="addroom">＋ Room (snap to walls)</button>`+
+      `<button data-act="adddoor">＋ Door</button>`+
       `<button data-act="adddoorway">＋ Doorway</button><button data-act="addwindow">＋ Window</button>`+
-      `<button data-act="furnpanel">＋ Furniture ▸</button>`;
+      `<button data-act="furnpanel">＋ Furniture ▸</button>`+
+      (ctx.room!=null&&rooms[ctx.room]?`<div class="hd">${rooms[ctx.room].name||'Room'}</div>`+
+        `<button data-act="rsnap">⤢ Snap room to walls</button>`+
+        `<button data-act="rrename">✎ Rename room</button>`+
+        `<button class="danger" data-act="rdel">✕ Delete room</button>`:'');
   }
   ctxEl.innerHTML=h;
 }
@@ -1101,10 +1367,10 @@ function showCtx(x,y){ctxEl.hidden=false;const w=ctxEl.offsetWidth,hh=ctxEl.offs
 function hideCtx(){ctxEl.hidden=true;}
 function openCtxMenu(target,cx,cy){
   const g=a=>target&&target.getAttribute&&target.getAttribute(a),feet=feetFromEvent({clientX:cx,clientY:cy});
-  const fi=g('data-furn'),oi=g('data-open');
+  const fi=g('data-furn'),oi=g('data-open'),ri=g('data-room');
   if(fi!=null)ctx={kind:'furn',idx:+fi,feet};
   else if(oi!=null)ctx={kind:'open',idx:+oi,feet};
-  else ctx={kind:'add',feet};
+  else ctx={kind:'add',feet,room:(ri!=null?+ri:null)};
   renderCtx('root');showCtx(cx,cy);
 }
 svg.addEventListener('contextmenu',e=>{e.preventDefault();openCtxMenu(e.target,e.clientX,e.clientY);});
@@ -1113,6 +1379,16 @@ ctxEl.addEventListener('click',e=>{
   if(act==='furnpanel'){renderCtx('furn');showCtx(parseFloat(ctxEl.style.left),parseFloat(ctxEl.style.top));return;}
   if(act==='back'){renderCtx('root');return;}
   switch(act){
+    case'addroom':{const poly=enclosedPolygon(feet.x,feet.r);
+      const nm=prompt('Name this room','Room '+(rooms.length+1));if(nm===null)break;
+      const nr={name:nm||('Room '+(rooms.length+1)),color:RC[rooms.length%RC.length]};
+      if(poly){const bb=polyBBox(poly);nr.poly=poly;nr.x=bb.x;nr.y=bb.y;nr.w=bb.w;nr.h=bb.h;nr.desired=Math.max(1,Math.round(Math.abs(polyArea(poly))));}
+      else{nr.x=snap(feet.x-6);nr.y=snap(feet.r-5);nr.w=12;nr.h=10;nr.desired=120;}
+      rooms.push(nr);selected=rooms.length-1;selectedOpening=null;selectedFurn=null;renderList();renderPlan();scheduleSave();break;}
+    case'rsnap':if(ctx.room!=null&&snapRoomToWalls(rooms[ctx.room])){renderList();renderPlan();scheduleSave();}break;
+    case'rrename':{if(ctx.room==null)break;const nm=prompt('Rename room',rooms[ctx.room].name);
+      if(nm!=null){rooms[ctx.room].name=nm||rooms[ctx.room].name;renderList();renderPlan();scheduleSave();}break;}
+    case'rdel':if(ctx.room!=null){rooms.splice(ctx.room,1);selected=null;renderList();renderPlan();scheduleSave();}break;
     case'adddoor':placeTool='door';placeOpening(feet);break;
     case'adddoorway':placeTool='doorway';placeOpening(feet);break;
     case'addwindow':placeTool='window';placeOpening(feet);break;
@@ -1165,7 +1441,7 @@ const KEY='savedLayout';
 const DEFAULT_NAME_KEY='defaultVersionName';
 const SEED_NAME='Original';                       // built-in layout, seeded as the shared default on first run
 const LOCAL_OPT='__local-auto-save__';            // reserved picker value for this browser's autosave
-const DEFAULTS={plot:JSON.parse(JSON.stringify(plot)),walls:JSON.parse(JSON.stringify(walls)),wings:JSON.parse(JSON.stringify(wings)),rooms:JSON.parse(JSON.stringify(rooms)),openings:JSON.parse(JSON.stringify(openings)),furniture:JSON.parse(JSON.stringify(furniture))};
+const DEFAULTS={plot:JSON.parse(JSON.stringify(plot)),walls:JSON.parse(JSON.stringify(walls)),footprint:JSON.parse(JSON.stringify(footprint)),iwalls:JSON.parse(JSON.stringify(iwalls)),rooms:JSON.parse(JSON.stringify(rooms)),openings:JSON.parse(JSON.stringify(openings)),furniture:JSON.parse(JSON.stringify(furniture))};
 let ready=false,saveTimer=null,defaultName=null,localDraftExists=false;
 
 function ioStatus(msg,err){const s=document.getElementById('iostatus');s.textContent=msg;s.style.color=err?'var(--red)':'var(--green)';}
@@ -1175,12 +1451,18 @@ function applyData(d){
     plot={pw:Math.max(1,+d.plot.pw||100),pd:Math.max(1,+d.plot.pd||150),offF:Math.max(0,+d.plot.offF||0),offR:Math.max(0,+d.plot.offR||0)};
   if(d.walls&&typeof d.walls==='object')
     walls={ext:Math.max(0,+d.walls.ext||0),int:Math.max(0,+d.walls.int||0)};
-  if(Array.isArray(d.wings)&&d.wings.length>=1)
-    wings=d.wings.map(s=>({w:Math.max(0,+s.w||0),d:Math.max(0,+s.d||0),s:Math.max(0,+s.s||0)}));
+  if(Array.isArray(d.footprint)&&d.footprint.length>=3)
+    footprint=d.footprint.map(p=>[+p[0]||0,+p[1]||0]);
+  else if(Array.isArray(d.wings)&&d.wings.length>=1)                       // migrate legacy wings → outline polygon
+    footprint=wingsToPolygon(d.wings.map(s=>({w:Math.max(0,+s.w||0),d:Math.max(0,+s.d||0),s:Math.max(0,+s.s||0)})));
   if(Array.isArray(d.rooms))
-    rooms=d.rooms.map((r,i)=>({name:r.name!=null?String(r.name):"Room "+(i+1),
+    rooms=d.rooms.map((r,i)=>{const rm={name:r.name!=null?String(r.name):"Room "+(i+1),
       desired:Math.max(1,+r.desired||1),x:+r.x||0,y:+r.y||0,
-      w:Math.max(1,+r.w||1),h:Math.max(1,+r.h||1),color:r.color||RC[i%RC.length],open:!!r.open}));
+      w:Math.max(1,+r.w||1),h:Math.max(1,+r.h||1),color:r.color||RC[i%RC.length],open:!!r.open};
+      if(Array.isArray(r.poly)&&r.poly.length>=3)rm.poly=r.poly.map(p=>[+p[0]||0,+p[1]||0]);
+      return rm;});
+  // interior walls: use saved ones, else seed from the room layout (old saves had none)
+  iwalls=Array.isArray(d.iwalls)?d.iwalls.filter(w=>Array.isArray(w)&&w.length>=2).map(w=>w.map(p=>[+p[0]||0,+p[1]||0])):roomsToIWalls();
   openings=Array.isArray(d.openings)?d.openings.map(o=>({
     type:OTYPES.includes(o.type)?o.type:'door',
     orient:o.orient==='v'?'v':'h',
@@ -1195,7 +1477,7 @@ function applyData(d){
 async function saveLayout(manual){
   if(!STORE){if(manual)ioStatus("In-app save isn't available here — use Export instead",true);return;}
   try{
-    await STORE.set(KEY,JSON.stringify({plot,walls,wings,rooms,openings,furniture,savedAt:new Date().toISOString()}),false);
+    await STORE.set(KEY,JSON.stringify({plot,walls,footprint,iwalls,rooms,openings,furniture,savedAt:new Date().toISOString()}),false);
     if(!localDraftExists){localDraftExists=true;refreshVersions();}   // surface the local-auto-save entry the first time
     ioStatus("Auto-saved ✓");
   }
@@ -1250,7 +1532,8 @@ async function resetToDefault(){
   }else{
     plot=JSON.parse(JSON.stringify(DEFAULTS.plot));
     walls=JSON.parse(JSON.stringify(DEFAULTS.walls));
-    wings=JSON.parse(JSON.stringify(DEFAULTS.wings));
+    footprint=JSON.parse(JSON.stringify(DEFAULTS.footprint));
+    iwalls=JSON.parse(JSON.stringify(DEFAULTS.iwalls));
     rooms=JSON.parse(JSON.stringify(DEFAULTS.rooms));
     openings=JSON.parse(JSON.stringify(DEFAULTS.openings));
     furniture=JSON.parse(JSON.stringify(DEFAULTS.furniture));
@@ -1265,8 +1548,9 @@ function exportJSON(){
   const data={schema:"first-floor-plan",version:1,exported:new Date().toISOString(),
     plot:{pw:plot.pw,pd:plot.pd,offF:plot.offF,offR:plot.offR},
     walls:{ext:walls.ext,int:walls.int},
-    wings:wings.map(s=>({w:s.w,d:s.d,s:s.s})),
-    rooms:rooms.map(r=>({name:r.name,desired:r.desired,x:r.x,y:r.y,w:r.w,h:r.h,color:r.color,open:!!r.open})),
+    footprint:footprint.map(p=>[p[0],p[1]]),
+    iwalls:iwalls.map(w=>w.map(p=>[p[0],p[1]])),
+    rooms:rooms.map(r=>{const o={name:r.name,desired:r.desired,x:r.x,y:r.y,w:r.w,h:r.h,color:r.color,open:!!r.open};if(r.poly)o.poly=r.poly.map(p=>[p[0],p[1]]);return o;}),
     openings:openings.map(o=>({type:o.type,orient:o.orient,x:o.x,y:o.y,len:o.len,flip:!!o.flip,hinge:!!o.hinge})),
     furniture:furniture.map(f=>({type:f.type,cx:f.cx,cy:f.cy,w:f.w,d:f.d,rot:f.rot||0}))};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
@@ -1279,7 +1563,7 @@ function importJSON(file){
   const reader=new FileReader();
   reader.onload=()=>{
     try{const d=JSON.parse(reader.result);
-      if(!Array.isArray(d.wings)&&!Array.isArray(d.rooms)&&!d.plot){ioStatus("No layout data found in that file",true);return;}
+      if(!Array.isArray(d.footprint)&&!Array.isArray(d.wings)&&!Array.isArray(d.rooms)&&!d.plot){ioStatus("No layout data found in that file",true);return;}
       applyData(d);ioStatus("Imported layout");scheduleSave();
     }catch(err){ioStatus("Could not read that file — not valid layout JSON",true);}
   };
@@ -1311,7 +1595,7 @@ async function putVersions(obj){
   if(!SHARED)return false;
   try{await SHARED.set(VKEY,JSON.stringify(obj),false);return true;}catch(e){return false;}
 }
-function snapshot(){return {plot,walls,wings,rooms,openings,furniture,savedAt:new Date().toISOString()};}
+function snapshot(){return {plot,walls,footprint,iwalls,rooms,openings,furniture,savedAt:new Date().toISOString()};}
 const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 function updateStarState(){
   const name=document.getElementById('vername').value.trim();
