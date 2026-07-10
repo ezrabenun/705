@@ -218,6 +218,12 @@ function build(L){
   // "outside" = beyond the building footprint. Falls back to the room test if there are no wings.
   const hasWings=wings.length>0;
   function insideAny(x,z){for(const r of closed){if(x>r.x+0.05&&x<r.x+r.w-0.05&&z>r.y+0.05&&z<r.y+r.h-0.05)return true;}return false;}
+  // open areas that are part of the building (their rectangle overlaps the frame) — e.g. a covered patio.
+  // Walls facing these are dropped; open landscape beyond the frame (yard/pool/setbacks) keeps its walls.
+  function overlapsFrame(r){for(let i=0;i<wings.length;i++){const wy0=+wings[i].s||0,wy1=wy0+(+wings[i].d||0);
+    if(Math.min(r.x+r.w,xE[i+1])-Math.max(r.x,xE[i])>0.5 && Math.min(r.y+r.h,wy1)-Math.max(r.y,wy0)>0.5)return true;}return false;}
+  const openBuilding=hasWings?rooms.filter(r=>r.open&&overlapsFrame(r)):rooms.filter(r=>r.open);
+  function insideOpen(x,z){for(const r of openBuilding){if(x>r.x+0.05&&x<r.x+r.w-0.05&&z>r.y+0.05&&z<r.y+r.h-0.05)return true;}return false;}
   const isOutside=(x,z)=>hasWings?!insideBuilding(x,z):!insideAny(x,z);
   function gapHit(mx,mz,horiz){                     // doors & doorways cut the wall; windows do not
     for(const o of openings){ if(o.type==='window')continue;
@@ -241,9 +247,11 @@ function build(L){
       let run=null,rExt=null; const flush=()=>{if(run){addWall(run.x1,run.z1,run.x2,run.z2,rExt);run=null;}};
       for(let i=0;i<n;i++){
         const mx=e.x1+(e.x2-e.x1)*(i+0.5)/n, mz=e.z1+(e.z2-e.z1)*(i+0.5)/n;
-        const outside=isOutside(mx+e.nx*0.4, mz+e.nz*0.4);
+        const ox=mx+e.nx*0.4, oz=mz+e.nz*0.4;
+        const outside=isOutside(ox,oz);
         let draw=true, ext=outside;
         if(gapHit(mx,mz,e.h)) draw=false;
+        else if(insideOpen(ox,oz)) draw=false;             // edge faces an open building-area (patio) → no wall
         else if(!outside){const k=key(e.h?mz:mx,e.h?mx:mz,e.h); if(drawn.has(k))draw=false; else drawn.add(k);}
         const sx=e.x1+(e.x2-e.x1)*i/n, sz=e.z1+(e.z2-e.z1)*i/n;
         const ex=e.x1+(e.x2-e.x1)*(i+1)/n, ez=e.z1+(e.z2-e.z1)*(i+1)/n;
