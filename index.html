@@ -394,18 +394,18 @@ function roomsToIWalls(){const r2=v=>Math.round(v*100)/100,map=new Map();
     add('h',r.y,r.x,r.x+r.w);add('h',r.y+r.h,r.x,r.x+r.w);});
   return [...map.values()];}
 // snap a wall point to the grid, onto nearby outer-wall lines, to existing junctions, and to right angles vs a reference
-function snapWallPoint(x,y,ref,alt){
+function snapWallPoint(x,y,ref,alt,skipWall){
   let nx=snap(x),ny=snap(y);
   if(alt)return [nx,ny];
-  const th=1.0;
+  const th=0.45;                                                                                   // magnet radius, under the 0.5' grid step so moves never stick
   for(let i=0;i<footprint.length;i++){const p=footprint[i],q=footprint[(i+1)%footprint.length];   // land on an outline edge
     if(Math.abs(p[0]-q[0])<1e-6){if(Math.abs(nx-p[0])<=th&&ny>=Math.min(p[1],q[1])-th&&ny<=Math.max(p[1],q[1])+th)nx=p[0];}
     else if(Math.abs(p[1]-q[1])<1e-6){if(Math.abs(ny-p[1])<=th&&nx>=Math.min(p[0],q[0])-th&&nx<=Math.max(p[0],q[0])+th)ny=p[1];}}
-  let best=null,bd=th;                                                                              // snap to a junction vertex
-  for(const w of iwalls)for(const p of w){const d=Math.hypot(nx-p[0],ny-p[1]);if(d<bd){bd=d;best=p;}}
+  let best=null,bd=th;                                                                              // snap to another wall's junction (never our own)
+  for(let wi=0;wi<iwalls.length;wi++){if(wi===skipWall)continue;for(const p of iwalls[wi]){const d=Math.hypot(nx-p[0],ny-p[1]);if(d<bd){bd=d;best=p;}}}
   for(const p of footprint){const d=Math.hypot(nx-p[0],ny-p[1]);if(d<bd){bd=d;best=p;}}
   if(best){nx=best[0];ny=best[1];}
-  if(ref){if(Math.abs(nx-ref[0])<=1)nx=ref[0];if(Math.abs(ny-ref[1])<=1)ny=ref[1];}               // keep right angles
+  if(ref){if(Math.abs(nx-ref[0])<=th)nx=ref[0];if(Math.abs(ny-ref[1])<=th)ny=ref[1];}             // keep right angles
   return [nx,ny];}
 // the rectangle enclosed by the nearest walls around a point (rays cast out to outline + interior walls)
 function enclosingRect(cx,cy){
@@ -1146,15 +1146,15 @@ svg.addEventListener('pointermove',e=>{
   if(drag.kind==='fpt'){                                              // drag an outline corner
     let nx=snap(drag.o[0]+dx),ny=snap(drag.o[1]+dr);
     const n=footprint.length,pv=footprint[(drag.idx-1+n)%n],nv=footprint[(drag.idx+1)%n];
-    if(!e.altKey){                                                    // snap to a neighbour's axis → keep right angles
-      if(Math.abs(nx-pv[0])<=1)nx=pv[0];else if(Math.abs(nx-nv[0])<=1)nx=nv[0];
-      if(Math.abs(ny-pv[1])<=1)ny=pv[1];else if(Math.abs(ny-nv[1])<=1)ny=nv[1];
+    if(!e.altKey){                                                    // snap to a neighbour's axis → keep right angles (radius under the grid step)
+      if(Math.abs(nx-pv[0])<=0.45)nx=pv[0];else if(Math.abs(nx-nv[0])<=0.45)nx=nv[0];
+      if(Math.abs(ny-pv[1])<=0.45)ny=pv[1];else if(Math.abs(ny-nv[1])<=0.45)ny=nv[1];
     }
     footprint[drag.idx]=[nx,ny];renderPlan();return;
   }
   if(drag.kind==='iwpt'){                                             // drag an interior-wall point
     const w=iwalls[drag.wi],ref=w[drag.pi-1]||w[drag.pi+1]||null;
-    w[drag.pi]=snapWallPoint(drag.o[0]+dx,drag.o[1]+dr,ref,e.altKey);renderPlan();return;
+    w[drag.pi]=snapWallPoint(drag.o[0]+dx,drag.o[1]+dr,ref,e.altKey,drag.wi);renderPlan();return;
   }
   if(drag.kind==='furn'){
     const fitem=furniture[drag.idx],so=drag.o;
