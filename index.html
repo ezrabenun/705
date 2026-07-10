@@ -345,6 +345,7 @@ let editOutline=false;                        // when true, the plan shows dragg
 // interior walls: free-drawn polylines [[x,y],...] (ft). Seeded from the room layout; edited on the plan.
 let iwalls=roomsToIWalls();
 let editWalls=false;                          // when true, interior-wall corners are draggable
+let selectedWall=null;                        // index of the interior wall selected for arrow-key nudging
 let drawWall=null;                            // in-progress polyline while drawing a new wall (array of pts) or null
 // furniture: {type, cx, cy (centre, ft), w, d (footprint ft), rot (0/90/180/270)}
 let furniture=[];
@@ -548,6 +549,22 @@ function snapRoomToWalls(r){
   const poly=enclosedPolygon(c[0],c[1],bounds);
   if(poly){const bb=polyBBox(poly);r.poly=poly;r.x=bb.x;r.y=bb.y;r.w=bb.w;r.h=bb.h;return true;}
   delete r.poly;r.x=bounds.x;r.y=bounds.y;r.w=bounds.w;r.h=bounds.h;return true;}
+// rooms whose edge lies on a wall's line (for resizing them when the wall moves)
+function roomsAdjacentToWall(w){
+  const xs=w.map(p=>p[0]),ys=w.map(p=>p[1]);
+  const isV=Math.max(...xs)-Math.min(...xs)<1e-6, isH=Math.max(...ys)-Math.min(...ys)<1e-6;
+  const axis=isV?xs[0]:ys[0], lo=isV?Math.min(...ys):Math.min(...xs), hi=isV?Math.max(...ys):Math.max(...xs), adj=[];
+  rooms.forEach((r,ri)=>{if(r.open)return;const bb=roomBBox(r);
+    if(isV){if((Math.abs(bb.x-axis)<0.25||Math.abs(bb.x+bb.w-axis)<0.25)&&Math.min(bb.y+bb.h,hi)-Math.max(bb.y,lo)>0.3)adj.push(ri);}
+    else if(isH){if((Math.abs(bb.y-axis)<0.25||Math.abs(bb.y+bb.h-axis)<0.25)&&Math.min(bb.x+bb.w,hi)-Math.max(bb.x,lo)>0.3)adj.push(ri);}});
+  return {isV,isH,adj};}
+// move a whole wall by (ddx,ddy) — perpendicular to its run — and re-fit the rooms it borders
+function nudgeWall(wi,ddx,ddy){
+  const w=iwalls[wi];if(!w||w.length<2)return;
+  const {isV,isH,adj}=roomsAdjacentToWall(w);
+  if(isV)w.forEach(p=>p[0]+=ddx); else if(isH)w.forEach(p=>p[1]+=ddy); else w.forEach(p=>{p[0]+=ddx;p[1]+=ddy;});
+  adj.forEach(ri=>snapRoomToWalls(rooms[ri]));
+  renderPlan();scheduleSave();buildWallsPanel();}
 // distance from a point to a segment, and which kind of wall (if any) is under a point — for double-click/long-press editing
 function segDist(px,py,ax,ay,bx,by){const dx=bx-ax,dy=by-ay,L2=dx*dx+dy*dy;let t=L2?((px-ax)*dx+(py-ay)*dy)/L2:0;t=Math.max(0,Math.min(1,t));return Math.hypot(px-(ax+t*dx),py-(ay+t*dy));}
 function wallHitType(px,py,thresh){
@@ -667,8 +684,8 @@ function buildWallsPanel(){
     <button class="btn ghost" id="editwallbtn" style="margin-left:8px;${editWalls?'background:var(--blue);color:#fff':''}">${editWalls?'✓ Editing walls':'Edit walls'}</button>
     <button class="btn ghost" id="tidywallbtn" style="margin-left:8px" title="Merge doubled walls and connect ends that stop short">⤾ Tidy walls</button>
     <span style="margin-left:10px;font-size:.82rem;color:var(--ink-soft)">Walls: ${iwalls.length}</span>`;
-  document.getElementById('drawwallbtn').onclick=()=>{drawWall=drawWall?null:[];if(drawWall)editWalls=false;buildWallsPanel();renderPlan();};
-  document.getElementById('editwallbtn').onclick=()=>{editWalls=!editWalls;if(editWalls)drawWall=null;buildWallsPanel();renderPlan();};
+  document.getElementById('drawwallbtn').onclick=()=>{drawWall=drawWall?null:[];if(drawWall){editWalls=false;selectedWall=null;}buildWallsPanel();renderPlan();};
+  document.getElementById('editwallbtn').onclick=()=>{editWalls=!editWalls;if(editWalls)drawWall=null;else selectedWall=null;buildWallsPanel();renderPlan();};
   document.getElementById('tidywallbtn').onclick=()=>{const n0=iwalls.length;iwalls=cleanWalls(iwalls);buildWallsPanel();renderPlan();scheduleSave();ioStatus('Tidied walls: '+n0+' → '+iwalls.length);};
 }
 [['w-ext','ext'],['w-int','int']].forEach(([id,key])=>{
@@ -858,6 +875,9 @@ function renderPlan(){
 // interior-wall edit handles: draggable vertices (data-iwpt="wi,pi"), edge add-points (data-iwadd="wi,si"),
 // plus the rubber-band preview of a wall being drawn
 function drawIWallEdit(){
+  if(editWalls&&selectedWall!=null&&iwalls[selectedWall]&&iwalls[selectedWall].length>=2){   // highlight the selected wall
+    const w=iwalls[selectedWall];
+    svg.appendChild(el('path',{d:"M "+w.map(p=>fx(p[0])+" "+fyR(p[1])).join(" L "),fill:'none',stroke:'var(--blue)','stroke-width':Math.max(4,walls.int/12*PX+3),'stroke-opacity':.45}));}
   if(editWalls)iwalls.forEach((w,wi)=>{
     // transparent thick hit-line to grab the whole wall and slide it (drawn under the dots/+)
     if(w.length>=2)svg.appendChild(el('path',{d:"M "+w.map(p=>fx(p[0])+" "+fyR(p[1])).join(" L "),fill:'none',stroke:'transparent','stroke-width':12,'data-iwmove':wi,style:'cursor:move'}));
@@ -1146,7 +1166,7 @@ svg.addEventListener('pointerdown',e=>{
   }
   if(editWalls){                                    // interior-wall edit mode: drag a point, or add one on a segment
     const iw=e.target.getAttribute('data-iwpt');
-    if(iw!=null){const[wi,pi]=iw.split(',').map(Number);const p=feetFromEvent(e);
+    if(iw!=null){const[wi,pi]=iw.split(',').map(Number);const p=feetFromEvent(e);selectedWall=wi;
       drag={kind:'iwpt',wi,pi,sx:p.x,sr:p.r,o:iwalls[wi][pi].slice()};
       try{svg.setPointerCapture(e.pointerId);}catch(_){}e.preventDefault();return;}
     const ia=e.target.getAttribute('data-iwadd');
@@ -1160,7 +1180,7 @@ svg.addEventListener('pointerdown',e=>{
       const adj=[];rooms.forEach((r,ri)=>{if(r.open)return;const bb=roomBBox(r);
         if(isV){if((Math.abs(bb.x-oldAxis)<0.25||Math.abs(bb.x+bb.w-oldAxis)<0.25)&&Math.min(bb.y+bb.h,hi)-Math.max(bb.y,lo)>0.3)adj.push(ri);}
         else if(isH){if((Math.abs(bb.y-oldAxis)<0.25||Math.abs(bb.y+bb.h-oldAxis)<0.25)&&Math.min(bb.x+bb.w,hi)-Math.max(bb.x,lo)>0.3)adj.push(ri);}});
-      const p=feetFromEvent(e);
+      const p=feetFromEvent(e);selectedWall=wi;
       drag={kind:'iwmove',wi,isV,isH,oldAxis,adj,sx:p.x,sr:p.r,o:w.map(q=>q.slice())};
       try{svg.setPointerCapture(e.pointerId);}catch(_){}e.preventDefault();return;}
   }
@@ -1340,9 +1360,17 @@ svg.addEventListener('dblclick',e=>{
   // otherwise: double-click a wall to start editing it; double-click empty space to finish editing
   const f=feetFromEvent(e);
   if(editWallAt(f.x,f.r)){e.preventDefault();return;}
-  if(editWalls||editOutline){editWalls=false;editOutline=false;buildWallsPanel();buildFramePanel();renderPlan();e.preventDefault();}
+  if(editWalls||editOutline){editWalls=false;editOutline=false;selectedWall=null;buildWallsPanel();buildFramePanel();renderPlan();e.preventDefault();}
 });
 document.addEventListener('keydown',e=>{
+  if(editWalls&&selectedWall!=null&&iwalls[selectedWall]&&e.key.startsWith('Arrow')){   // nudge the selected wall 1"
+    const s=1/12;
+    if(e.key==='ArrowLeft')nudgeWall(selectedWall,-s,0);
+    else if(e.key==='ArrowRight')nudgeWall(selectedWall,s,0);
+    else if(e.key==='ArrowUp')nudgeWall(selectedWall,0,s);
+    else if(e.key==='ArrowDown')nudgeWall(selectedWall,0,-s);
+    e.preventDefault();return;
+  }
   if(e.key==='r'||e.key==='R'){                    // rotate the selected furniture 90°
     if(selectedFurn!=null){furniture[selectedFurn].rot=((furniture[selectedFurn].rot||0)+90)%360;renderFurniture();renderPlan();scheduleSave();}
     return;
