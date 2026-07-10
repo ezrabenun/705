@@ -43,6 +43,7 @@
   #plan [data-fadd]{pointer-events:all;cursor:copy;}
   #plan [data-iwpt]{pointer-events:all;cursor:move;}
   #plan [data-iwadd]{pointer-events:all;cursor:copy;}
+  #plan [data-iwmove]{pointer-events:all;}
   svg#plan.arming{cursor:crosshair;}
   .btn.tool.armed{background:var(--red);border-color:var(--red);color:#fff;}
   .ctxmenu{position:fixed;z-index:1000;background:#fff;border:1px solid var(--line);border-radius:8px;
@@ -658,7 +659,8 @@ function buildWallsPanel(){
     <p style="margin:.2rem 0 .6rem;font-size:.82rem;line-height:1.5;color:var(--ink-soft)">
       <b>Double-click</b> (or long-press) a wall on the plan to edit it directly. Interior walls are free-drawn:
       <b>Draw a wall</b> then click points on the plan (snaps to grid, square,
-      and onto outer walls); <b>double-click</b> to finish. In <b>Edit</b> mode, drag a wall's dots to move,
+      and onto outer walls); <b>double-click</b> to finish. In <b>Edit</b> mode, drag a wall's <b>dots</b> to move a corner,
+      drag the wall <b>body</b> to slide the whole wall (the rooms it borders grow/shrink),
       click a <b>+</b> to add a point, double-click a dot to delete. Hold <b>Alt</b> for free placement.
       A room's inner size measures against whatever walls border it — so one drawn wall in a corner completes a room.</p>
     <button class="btn" id="drawwallbtn" style="${drawWall?'background:var(--red);color:#fff':''}">${drawWall?'✓ Drawing — double-click to finish':'✏️ Draw a wall'}</button>
@@ -857,6 +859,8 @@ function renderPlan(){
 // plus the rubber-band preview of a wall being drawn
 function drawIWallEdit(){
   if(editWalls)iwalls.forEach((w,wi)=>{
+    // transparent thick hit-line to grab the whole wall and slide it (drawn under the dots/+)
+    if(w.length>=2)svg.appendChild(el('path',{d:"M "+w.map(p=>fx(p[0])+" "+fyR(p[1])).join(" L "),fill:'none',stroke:'transparent','stroke-width':12,'data-iwmove':wi,style:'cursor:move'}));
     for(let i=0;i+1<w.length;i++){const p=w[i],q=w[i+1],mx=(p[0]+q[0])/2,my=(p[1]+q[1])/2;
       const add=el('circle',{cx:fx(mx),cy:fyR(my),r:6,fill:'var(--wall)',stroke:'#fff','stroke-width':1.5,'data-iwadd':wi+','+i});
       add.style.cursor='copy';svg.appendChild(add);
@@ -1086,6 +1090,7 @@ svg.addEventListener('pointerdown',e=>{
       else if(drag.kind==='furn')Object.assign(furniture[drag.idx],drag.o);
       else if(drag.kind==='fpt')footprint[drag.idx]=drag.o;
       else if(drag.kind==='iwpt')iwalls[drag.wi][drag.pi]=drag.o;
+      else if(drag.kind==='iwmove')iwalls[drag.wi]=drag.o;
       else{const o=drag.o,r=rooms[drag.idx];r.x=o.x;r.y=o.y;r.w=o.w;r.h=o.h;}
       drag=null;renderPlan();
     }
@@ -1106,6 +1111,7 @@ svg.addEventListener('pointerdown',e=>{
         else if(drag.kind==='furn')Object.assign(furniture[drag.idx],drag.o);
         else if(drag.kind==='fpt')footprint[drag.idx]=drag.o;
         else if(drag.kind==='iwpt')iwalls[drag.wi][drag.pi]=drag.o;
+        else if(drag.kind==='iwmove')iwalls[drag.wi]=drag.o;
         else if(drag.kind==='room'){const o=drag.o,r=rooms[drag.idx];r.x=o.x;r.y=o.y;r.w=o.w;r.h=o.h;}
         drag=null;renderPlan();
       }
@@ -1147,6 +1153,16 @@ svg.addEventListener('pointerdown',e=>{
     if(ia!=null){const[wi,si]=ia.split(',').map(Number),w=iwalls[wi];
       w.splice(si+1,0,[snap((w[si][0]+w[si+1][0])/2),snap((w[si][1]+w[si+1][1])/2)]);
       renderPlan();scheduleSave();e.preventDefault();return;}
+    const im=e.target.getAttribute('data-iwmove');   // grab wall body → slide the whole wall, resizing the rooms it borders
+    if(im!=null){const wi=+im,w=iwalls[wi],xs=w.map(p=>p[0]),ys=w.map(p=>p[1]);
+      const isV=Math.max(...xs)-Math.min(...xs)<1e-6, isH=Math.max(...ys)-Math.min(...ys)<1e-6;
+      const oldAxis=isV?xs[0]:ys[0], lo=isV?Math.min(...ys):Math.min(...xs), hi=isV?Math.max(...ys):Math.max(...xs);
+      const adj=[];rooms.forEach((r,ri)=>{if(r.open)return;const bb=roomBBox(r);
+        if(isV){if((Math.abs(bb.x-oldAxis)<0.25||Math.abs(bb.x+bb.w-oldAxis)<0.25)&&Math.min(bb.y+bb.h,hi)-Math.max(bb.y,lo)>0.3)adj.push(ri);}
+        else if(isH){if((Math.abs(bb.y-oldAxis)<0.25||Math.abs(bb.y+bb.h-oldAxis)<0.25)&&Math.min(bb.x+bb.w,hi)-Math.max(bb.x,lo)>0.3)adj.push(ri);}});
+      const p=feetFromEvent(e);
+      drag={kind:'iwmove',wi,isV,isH,oldAxis,adj,sx:p.x,sr:p.r,o:w.map(q=>q.slice())};
+      try{svg.setPointerCapture(e.pointerId);}catch(_){}e.preventDefault();return;}
   }
   const t=e.target;
   const fi=t.getAttribute('data-furn');
@@ -1241,6 +1257,15 @@ svg.addEventListener('pointermove',e=>{
     const w=iwalls[drag.wi],ref=w[drag.pi-1]||w[drag.pi+1]||null;
     w[drag.pi]=snapWallPoint(drag.o[0]+dx,drag.o[1]+dr,ref,e.altKey,drag.wi);renderPlan();return;
   }
+  if(drag.kind==='iwmove'){                                           // slide the whole wall perpendicular; rooms follow
+    const w=iwalls[drag.wi],o=drag.o;
+    if(drag.isV||drag.isH){
+      const na=snap(drag.oldAxis+(drag.isV?dx:dr));
+      w.forEach((p,i)=>{if(drag.isV){p[0]=na;p[1]=o[i][1];}else{p[0]=o[i][0];p[1]=na;}});
+      drag.adj.forEach(ri=>snapRoomToWalls(rooms[ri]));
+    }else{w.forEach((p,i)=>{p[0]=snap(o[i][0]+dx);p[1]=snap(o[i][1]+dr);});}
+    renderPlan();return;
+  }
   if(drag.kind==='furn'){
     const fitem=furniture[drag.idx],so=drag.o;
     if(drag.mode==='resize'){
@@ -1294,7 +1319,7 @@ function endPointer(e){
   clearTimeout(lpTimer);lpTimer=null;
   if(pointers.size<2)pinch=null;
   if(panP&&e.pointerId===panP.id)panP=null;
-  if(drag){const k=drag.kind;drag=null;renderList();if(k==='opening')renderOpenings();if(k==='furn')renderFurniture();if(k==='fpt')buildFramePanel();if(k==='iwpt')buildWallsPanel();scheduleSave();}
+  if(drag){const k=drag.kind;drag=null;renderList();if(k==='opening')renderOpenings();if(k==='furn')renderFurniture();if(k==='fpt')buildFramePanel();if(k==='iwpt'||k==='iwmove')buildWallsPanel();scheduleSave();}
   if(pointers.size===0&&!gMoved&&Date.now()-gDownT<300){   // double-tap empty/room → reset zoom
     if(Date.now()-lastTapT<300&&Math.hypot(e.clientX-lastTapX,e.clientY-lastTapY)<30){resetView();lastTapT=0;}
     else{lastTapT=Date.now();lastTapX=e.clientX;lastTapY=e.clientY;}
