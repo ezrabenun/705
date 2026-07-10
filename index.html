@@ -433,6 +433,13 @@ function snapWallPoint(x,y,ref,alt,skipWall){
   let best=null,bd=conn;
   for(let wi=0;wi<iwalls.length;wi++){if(wi===skipWall)continue;for(const p of iwalls[wi]){const d=Math.hypot(nx-p[0],ny-p[1]);if(d<bd){bd=d;best=p;}}}
   if(best){nx=best[0];ny=best[1];snX=snY=true;}
+  // butt onto the MIDDLE of another interior wall (T-junction): snap the perpendicular coord to that wall's line
+  for(let wi=0;wi<iwalls.length&&(!snX||!snY);wi++){if(wi===skipWall)continue;const w=iwalls[wi];
+    for(let i=0;i+1<w.length;i++){const a=w[i],b=w[i+1];
+      if(!snX&&Math.abs(a[0]-b[0])<1e-6){const lo=Math.min(a[1],b[1]),hi=Math.max(a[1],b[1]);
+        if(Math.abs(nx-a[0])<=conn&&ny>=lo-conn&&ny<=hi+conn){nx=a[0];snX=true;}}
+      else if(!snY&&Math.abs(a[1]-b[1])<1e-6){const lo=Math.min(a[0],b[0]),hi=Math.max(a[0],b[0]);
+        if(Math.abs(ny-a[1])<=conn&&nx>=lo-conn&&nx<=hi+conn){ny=a[1];snY=true;}}}}
   if(!snX)nx=snap(nx);if(!snY)ny=snap(ny);                  // grid-snap whatever a connect didn't lock
   if(ref){if(!snX&&Math.abs(nx-ref[0])<=0.45)nx=ref[0];if(!snY&&Math.abs(ny-ref[1])<=0.45)ny=ref[1];}  // keep right angles
   return [nx,ny];}
