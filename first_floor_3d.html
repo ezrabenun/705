@@ -368,10 +368,10 @@ function build(L){
     if(o.orient==='h') world.add(box(0.16,6.7,o.len,mat,o.x-CX,FT,CZ-(o.y-s*o.len/2)));  // z is flipped, so swing sign flips
     else               world.add(box(o.len,6.7,0.16,mat,(o.x+s*o.len/2)-CX,FT,CZ-o.y)); });
 
-  // ---- garage doors (full-height panel spanning grade up to the room ceiling) ----
-  openings.forEach(o=>{ if(o.type!=='garage')return; const mat=M(0xd0d5db,{roughness:.5}),H=CEIL+gradeH;
-    if(o.orient==='h') world.add(box(o.len,H,0.32,mat,(o.x+o.len/2)-CX,-gradeH,CZ-o.y));
-    else               world.add(box(0.32,H,o.len,mat,o.x-CX,-gradeH,CZ-(o.y+o.len/2))); });
+  // ---- garage doors (shown OPEN — the panel is rolled up under the ceiling, opening clear below) ----
+  openings.forEach(o=>{ if(o.type!=='garage')return; const mat=M(0xd0d5db,{roughness:.5}),ph=0.9,py=CEIL-ph;
+    if(o.orient==='h') world.add(box(o.len,ph,0.7,mat,(o.x+o.len/2)-CX,py,CZ-o.y));
+    else               world.add(box(0.7,ph,o.len,mat,o.x-CX,py,CZ-(o.y+o.len/2))); });
 
   // ---- furniture ----
   const stairRise=((L.plot&&+L.plot.ceilH)||9)+1;   // floor-to-floor rise for stairs (ceiling height + standard floor assembly)
