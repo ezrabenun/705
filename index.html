@@ -44,6 +44,8 @@
   #plan [data-iwpt]{pointer-events:all;cursor:move;}
   #plan [data-iwadd]{pointer-events:all;cursor:copy;}
   #plan [data-iwmove]{pointer-events:all;}
+  #plan [data-dim]{pointer-events:all;cursor:pointer;}
+  .dimlbl{font-family:var(--mono);font-size:10px;font-weight:700;paint-order:stroke;stroke:var(--paper);stroke-width:3px;stroke-linejoin:round;}
   svg#plan.arming{cursor:crosshair;}
   .btn.tool.armed{background:var(--red);border-color:var(--red);color:#fff;}
   .ctxmenu{position:fixed;z-index:1000;background:#fff;border:1px solid var(--line);border-radius:8px;
@@ -148,6 +150,7 @@
     <button id="tab-frame" role="tab" aria-selected="false">Outline</button>
     <button id="tab-plot" role="tab" aria-selected="false">Plot</button>
     <button id="tab-walls" role="tab" aria-selected="false">Walls</button>
+    <button id="tab-dims" role="tab" aria-selected="false">Dimensions</button>
   </div>
 
   <div class="io" id="versionbar">
@@ -255,6 +258,18 @@
     </div>
   </div>
 
+  <!-- DIMENSIONS -->
+  <div class="pane" id="pane-dims">
+    <div class="addrow">
+      <button class="btn tool" id="adddimbtn">＋ Add dimension</button>
+      <span class="hint" id="dimhint">Click <b>Add dimension</b>, then click two points on the plan. Each point snaps to a wall face (inside/outside), a corner, or the lot line. The distance is labelled. <b>Esc</b> cancels.</span>
+    </div>
+    <table class="rooms" id="dimtable">
+      <thead><tr><th class="l">Dimension</th><th>Length</th><th></th></tr></thead>
+      <tbody id="dimlist"></tbody>
+    </table>
+  </div>
+
   <div class="titleblock">
     <span>GRID = 1'-0"  ·  TAP ROOM TO SELECT · DRAG SELECTED TO MOVE · CORNERS RESIZE</span>
     <span>BOTTOM = FRONT / STREET · TOP = REAR</span>
@@ -350,6 +365,8 @@ let editOutline=false;                        // when true, the plan shows dragg
 let iwalls=roomsToIWalls();
 let editWalls=false;                          // when true, interior-wall corners are draggable
 let selectedWall=null;                        // index of the interior wall selected for arrow-key nudging
+let dims=[];                                  // manual dimension lines: {a:[x,y], b:[x,y]} in building coords
+let dimArmed=false, dimA=null;                // dimension tool: armed for first/second click
 let drawWall=null;                            // in-progress polyline while drawing a new wall (array of pts) or null
 // furniture: {type, cx, cy (centre, ft), w, d (footprint ft), rot (0/90/180/270)}
 let furniture=[];
@@ -511,6 +528,22 @@ function innerPolyArea(poly){
     inner.push([x,y]);}
   return Math.abs(polyArea(inner));
 }
+// candidate snap coordinates for dimension endpoints: wall centrelines & both faces, plus lot lines
+function dimLines(){
+  const V=new Set(),H=new Set(),extH=walls.ext/24,intH=walls.int/24;
+  for(let i=0;i<footprint.length;i++){const p=footprint[i],q=footprint[(i+1)%footprint.length];
+    if(Math.abs(p[0]-q[0])<1e-6){V.add(p[0]);V.add(p[0]-extH);V.add(p[0]+extH);}
+    else if(Math.abs(p[1]-q[1])<1e-6){H.add(p[1]);H.add(p[1]-extH);H.add(p[1]+extH);}}
+  for(const w of iwalls)for(let i=0;i+1<w.length;i++){const p=w[i],q=w[i+1];
+    if(Math.abs(p[0]-q[0])<1e-6){V.add(p[0]);V.add(p[0]-intH);V.add(p[0]+intH);}
+    else if(Math.abs(p[1]-q[1])<1e-6){H.add(p[1]);H.add(p[1]-intH);H.add(p[1]+intH);}}
+  if(cur){V.add(-cur.offX);V.add(cur.pw-cur.offX);H.add(-cur.offF);H.add(cur.pd-cur.offF);}   // lot boundary
+  return {V:[...V],H:[...H]};}
+// snap a clicked point to the nearest wall face / centreline / lot line (per axis)
+function snapDimPoint(x,y){const {V,H}=dimLines(),th=0.6;let nx=x,ny=y,bx=th,by=th;
+  for(const v of V){const d=Math.abs(x-v);if(d<bx){bx=d;nx=v;}}
+  for(const h of H){const d=Math.abs(y-h);if(d<by){by=d;ny=h;}}
+  return [+nx.toFixed(3),+ny.toFixed(3)];}
 // all wall segments (outline + interior) as axis-aligned records
 function wallSegs(){const S=[];const add=(p,q)=>{if(Math.abs(p[0]-q[0])<1e-6)S.push({v:true,x:p[0],a:Math.min(p[1],q[1]),b:Math.max(p[1],q[1])});
   else if(Math.abs(p[1]-q[1])<1e-6)S.push({v:false,y:p[1],a:Math.min(p[0],q[0]),b:Math.max(p[0],q[0])});};
@@ -670,7 +703,7 @@ function editWallAt(px,py){const hit=wallHitType(px,py,0.8);
   return false;}
 
 /* ---------- tabs ---------- */
-const TABS=['rooms','openings','furniture','frame','plot','walls'];
+const TABS=['rooms','openings','furniture','frame','plot','walls','dims'];
 function setTab(which){
   TABS.forEach(t=>{
     document.getElementById('tab-'+t).setAttribute('aria-selected',t===which);
@@ -754,6 +787,18 @@ function buildWallsPanel(){
   });
 });
 buildWallsPanel();
+
+/* ---------- dimensions panel ---------- */
+function buildDimsPanel(){
+  const btn=document.getElementById('adddimbtn');if(btn)btn.style.cssText=dimArmed?'background:var(--red);color:#fff':'';
+  const dl=document.getElementById('dimlist');if(!dl)return;
+  if(!dims.length){dl.innerHTML='<tr><td colspan="3" class="empty">No dimensions yet — click “Add dimension”, then click two points.</td></tr>';return;}
+  dl.innerHTML=dims.map((dm,i)=>`<tr><td class="l">(${fmt(dm.a[0])}, ${fmt(dm.a[1])}) → (${fmt(dm.b[0])}, ${fmt(dm.b[1])})</td>`+
+    `<td>${ftIn(Math.hypot(dm.a[0]-dm.b[0],dm.a[1]-dm.b[1]))}</td><td><button class="del" data-dimdel="${i}" title="Delete">✕</button></td></tr>`).join('');}
+document.getElementById('adddimbtn').onclick=()=>{dimArmed=!dimArmed;dimA=null;buildDimsPanel();renderPlan();};
+document.getElementById('dimlist').addEventListener('click',e=>{const d=e.target.dataset.dimdel;if(d==null)return;
+  dims.splice(+d,1);buildDimsPanel();renderPlan();scheduleSave();});
+buildDimsPanel();
 
 /* ---------- geometry helpers ---------- */
 // drop duplicate & collinear corners so the editable polygon stays clean
@@ -934,6 +979,19 @@ function renderPlan(){
   // outline-editing handles (draggable corners + "+" add-points on each edge) — on top of everything
   if(editOutline)drawOutline();
   if(editWalls||drawWall)drawIWallEdit();
+  drawDims();
+}
+// manual dimension lines (line + end ticks + length label)
+function drawDims(){
+  const tick=(x,y,px,py)=>svg.appendChild(el('line',{x1:x-px,y1:y-py,x2:x+px,y2:y+py,stroke:'var(--blue)','stroke-width':1}));
+  dims.forEach((dm,i)=>{const ax=fx(dm.a[0]),ay=fyR(dm.a[1]),bx=fx(dm.b[0]),by=fyR(dm.b[1]);
+    const dist=Math.hypot(dm.a[0]-dm.b[0],dm.a[1]-dm.b[1]);
+    let dx=bx-ax,dy=by-ay,L=Math.hypot(dx,dy)||1,px=-dy/L*5,py=dx/L*5;
+    svg.appendChild(el('line',{x1:ax,y1:ay,x2:bx,y2:by,stroke:'var(--blue)','stroke-width':1}));
+    tick(ax,ay,px,py);tick(bx,by,px,py);
+    const t=txt((ax+bx)/2,(ay+by)/2-4,'dimlbl',ftIn(dist));t.setAttribute('fill','var(--blue)');svg.appendChild(t);
+    svg.appendChild(el('line',{x1:ax,y1:ay,x2:bx,y2:by,stroke:'transparent','stroke-width':12,'data-dim':i}));});
+  if(dimArmed&&dimA)svg.appendChild(el('circle',{cx:fx(dimA[0]),cy:fyR(dimA[1]),r:4,fill:'var(--blue)'}));
 }
 
 // interior-wall edit handles: draggable vertices (data-iwpt="wi,pi"), edge add-points (data-iwadd="wi,si"),
@@ -1219,6 +1277,12 @@ svg.addEventListener('pointerdown',e=>{
     const p=feetFromEvent(e),ref=drawWall[drawWall.length-1]||null;
     drawWall.push(snapWallPoint(p.x,p.r,ref,e.altKey));renderPlan();e.preventDefault();return;
   }
+  if(dimArmed){                                     // dimension tool: click point A, then point B
+    const p=feetFromEvent(e),pt=snapDimPoint(p.x,p.r);
+    if(!dimA){dimA=pt;renderPlan();}
+    else{if(Math.hypot(pt[0]-dimA[0],pt[1]-dimA[1])>0.1)dims.push({a:dimA,b:pt});dimArmed=false;dimA=null;buildDimsPanel();renderPlan();scheduleSave();}
+    e.preventDefault();return;
+  }
   if(editOutline){                                  // outline edit mode: drag a corner, or add one on an edge
     const fp=e.target.getAttribute('data-fpt');
     if(fp!=null){const p=feetFromEvent(e);drag={kind:'fpt',idx:+fp,sx:p.x,sr:p.r,o:footprint[+fp].slice()};
@@ -1442,7 +1506,8 @@ document.addEventListener('keydown',e=>{
     return;
   }
   if(e.key!=='Escape')return;
-  if(drawWall){drawWall=null;buildWallsPanel();renderPlan();}
+  if(dimArmed){dimArmed=false;dimA=null;buildDimsPanel();renderPlan();}
+  else if(drawWall){drawWall=null;buildWallsPanel();renderPlan();}
   else if(placeTool||placeFurn){placeTool=null;placeFurn=null;updateToolButtons();}
   else if(selectedFurn!=null){selectedFurn=null;renderPlan();}
   else if(selectedOpening!=null){selectedOpening=null;renderPlan();}
@@ -1719,7 +1784,7 @@ const KEY='savedLayout';
 const DEFAULT_NAME_KEY='defaultVersionName';
 const SEED_NAME='Original';                       // built-in layout, seeded as the shared default on first run
 const LOCAL_OPT='__local-auto-save__';            // reserved picker value for this browser's autosave
-const DEFAULTS={plot:JSON.parse(JSON.stringify(plot)),walls:JSON.parse(JSON.stringify(walls)),footprint:JSON.parse(JSON.stringify(footprint)),iwalls:JSON.parse(JSON.stringify(iwalls)),rooms:JSON.parse(JSON.stringify(rooms)),openings:JSON.parse(JSON.stringify(openings)),furniture:JSON.parse(JSON.stringify(furniture))};
+const DEFAULTS={plot:JSON.parse(JSON.stringify(plot)),walls:JSON.parse(JSON.stringify(walls)),footprint:JSON.parse(JSON.stringify(footprint)),iwalls:JSON.parse(JSON.stringify(iwalls)),rooms:JSON.parse(JSON.stringify(rooms)),openings:JSON.parse(JSON.stringify(openings)),furniture:JSON.parse(JSON.stringify(furniture)),dims:[]};
 let ready=false,saveTimer=null,defaultName=null,localDraftExists=false;
 
 function ioStatus(msg,err){const s=document.getElementById('iostatus');s.textContent=msg;s.style.color=err?'var(--red)':'var(--green)';}
@@ -1748,14 +1813,15 @@ function applyData(d){
   furniture=Array.isArray(d.furniture)?d.furniture.map(f=>{const cat=FURN[f.type]||{w:3,d:3};
     return {type:FURN[f.type]?f.type:'table',cx:+f.cx||0,cy:+f.cy||0,
       w:Math.max(0.5,+f.w||cat.w),d:Math.max(0.5,+f.d||cat.d),rot:((+f.rot||0)%360+360)%360};}):[];
-  selected=null;selectedOpening=null;selectedFurn=null;
-  buildPlotPanel();buildWallsPanel();buildFramePanel();renderPlan();renderList();renderOpenings();renderFurniture();
+  dims=Array.isArray(d.dims)?d.dims.filter(m=>m&&Array.isArray(m.a)&&Array.isArray(m.b)).map(m=>({a:[+m.a[0]||0,+m.a[1]||0],b:[+m.b[0]||0,+m.b[1]||0]})):[];
+  selected=null;selectedOpening=null;selectedFurn=null;dimArmed=false;dimA=null;
+  buildPlotPanel();buildWallsPanel();buildFramePanel();buildDimsPanel();renderPlan();renderList();renderOpenings();renderFurniture();
 }
 
 async function saveLayout(manual){
   if(!STORE){if(manual)ioStatus("In-app save isn't available here — use Export instead",true);return;}
   try{
-    await STORE.set(KEY,JSON.stringify({plot,walls,footprint,iwalls,rooms,openings,furniture,savedAt:new Date().toISOString()}),false);
+    await STORE.set(KEY,JSON.stringify({plot,walls,footprint,iwalls,rooms,openings,furniture,dims,savedAt:new Date().toISOString()}),false);
     if(!localDraftExists){localDraftExists=true;refreshVersions();}   // surface the local-auto-save entry the first time
     ioStatus("Auto-saved ✓");
   }
@@ -1768,7 +1834,7 @@ function scheduleSave(){
 }
 /* ---------- undo / redo ---------- */
 let history=[],histIdx=-1,histLock=false;
-function histSnap(){return JSON.stringify({plot,walls,footprint,iwalls,rooms,openings,furniture});}
+function histSnap(){return JSON.stringify({plot,walls,footprint,iwalls,rooms,openings,furniture,dims});}
 function resetHistory(){history=[histSnap()];histIdx=0;updateUndoButtons();}
 function pushHistory(){if(histLock)return;const s=histSnap();if(histIdx>=0&&history[histIdx]===s)return;   // no real change
   history=history.slice(0,histIdx+1);history.push(s);if(history.length>80)history.shift();histIdx=history.length-1;updateUndoButtons();}
@@ -1842,7 +1908,8 @@ function exportJSON(){
     iwalls:iwalls.map(w=>w.map(p=>[p[0],p[1]])),
     rooms:rooms.map(r=>{const o={name:r.name,desired:r.desired,x:r.x,y:r.y,w:r.w,h:r.h,color:r.color,open:!!r.open};if(r.poly)o.poly=r.poly.map(p=>[p[0],p[1]]);return o;}),
     openings:openings.map(o=>({type:o.type,orient:o.orient,x:o.x,y:o.y,len:o.len,flip:!!o.flip,hinge:!!o.hinge})),
-    furniture:furniture.map(f=>({type:f.type,cx:f.cx,cy:f.cy,w:f.w,d:f.d,rot:f.rot||0}))};
+    furniture:furniture.map(f=>({type:f.type,cx:f.cx,cy:f.cy,w:f.w,d:f.d,rot:f.rot||0})),
+    dims:dims.map(m=>({a:[m.a[0],m.a[1]],b:[m.b[0],m.b[1]]}))};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
   const url=URL.createObjectURL(blob);const a=document.createElement('a');
   a.href=url;a.download=`floor-plan-${new Date().toISOString().slice(0,10)}.json`;
