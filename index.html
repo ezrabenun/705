@@ -479,6 +479,18 @@ function polyArea(p){let a=0;for(let i=0,j=p.length-1;i<p.length;j=i++)a+=(p[j][
 function polyBBox(p){let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;for(const q of p){x0=Math.min(x0,q[0]);y0=Math.min(y0,q[1]);x1=Math.max(x1,q[0]);y1=Math.max(y1,q[1]);}return {x:x0,y:y0,w:x1-x0,h:y1-y0};}
 function polyCentroid(p){let a=0,cx=0,cy=0;for(let i=0,j=p.length-1;i<p.length;j=i++){const f=p[j][0]*p[i][1]-p[i][0]*p[j][1];a+=f;cx+=(p[j][0]+p[i][0])*f;cy+=(p[j][1]+p[i][1])*f;}a*=0.5;if(Math.abs(a)<1e-6){let x=0,y=0;p.forEach(q=>{x+=q[0];y+=q[1];});return [x/p.length,y/p.length];}return [cx/(6*a),cy/(6*a)];}
 function roomBBox(r){return r.poly?polyBBox(r.poly):{x:r.x,y:r.y,w:r.w,h:r.h};}
+// a point guaranteed inside the polygon for label placement — centroid if it's inside (fast path for
+// convex/rect rooms), else the interior point farthest from any edge (handles L/U shapes wrapping a room)
+function labelPoint(poly){
+  const c=polyCentroid(poly);
+  if(pointInPoly(c[0],c[1],poly))return c;
+  const bb=polyBBox(poly),step=Math.max(0.5,Math.min(bb.w,bb.h)/14);
+  let best=c,bd=-1;
+  for(let x=bb.x+step/2;x<bb.x+bb.w;x+=step)for(let y=bb.y+step/2;y<bb.y+bb.h;y+=step){
+    if(!pointInPoly(x,y,poly))continue;
+    let d=Infinity;for(let i=0,j=poly.length-1;i<poly.length;j=i++)d=Math.min(d,segDist(x,y,poly[j][0],poly[j][1],poly[i][0],poly[i][1]));
+    if(d>bd){bd=d;best=[x,y];}}
+  return best;}
 function pointInPoly(px,py,poly){let inside=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const xi=poly[i][0],yi=poly[i][1],xj=poly[j][0],yj=poly[j][1];if(((yi>py)!==(yj>py))&&(px<(xj-xi)*(py-yi)/(yj-yi)+xi))inside=!inside;}return inside;}
 // net (inner-face) area of a rectilinear room polygon: offset every edge inward by half its wall's thickness
 function innerPolyArea(poly){
@@ -859,7 +871,7 @@ function renderPlan(){
     const bb=roomBBox(r), pxW=bb.w*PX, pxH=bb.h*PX, lineH=13;
     const maxLines=Math.max(1,Math.floor((pxH-2)/lineH));
     const essential=[{c:'rmname',t:r.name}], optional=[];
-    const c=r.poly?polyCentroid(r.poly):[r.x+r.w/2,r.y+r.h/2], cx=fx(c[0]), cy=fyR(c[1]);
+    const c=r.poly?labelPoint(r.poly):[r.x+r.w/2,r.y+r.h/2], cx=fx(c[0]), cy=fyR(c[1]);
     const nd=netDims(r), a=roomArea(r), di=deltaInfo(a,r.desired);
     // dimensions: open rooms show gross, everyone else shows net (inner) bbox dims; poly rooms' extent is their bbox
     const dimW=r.open?ft(bb.w):ftIn(nd.nw), dimD=r.open?ft(bb.h):ftIn(nd.nh), oneLine=dimW+"×"+dimD;
