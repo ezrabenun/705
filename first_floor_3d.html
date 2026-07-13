@@ -216,6 +216,7 @@ function build(L){
   const iwalls=Array.isArray(L.iwalls)?L.iwalls:[];
   const iwallsHide3d=Array.isArray(L.iwallsHide3d)?L.iwallsHide3d:[];
   const iwallsFence=Array.isArray(L.iwallsFence)?L.iwallsFence:[];
+  const iwallsFenceFoot=Array.isArray(L.iwallsFenceFoot)?L.iwallsFenceFoot:[];   // fence with a solid foundation wall below (porch rail)
   const wallsCfg=L.walls||{ext:7,int:4.75};
   const T_EXT=Math.max(0.25,(+wallsCfg.ext||7)/12), T_INT=Math.max(0.2,(+wallsCfg.int||4.75)/12);
   const closed=rooms.filter(r=>!r.open);
@@ -321,13 +322,14 @@ function build(L){
     }
     flush();
   }
-  // build a fence along a segment: posts every ~6 ft + two rails, ~4.5 ft tall
-  function buildFence(x1,z1,x2,z2){const len=Math.hypot(x2-x1,z2-z1);if(len<0.25)return;
-    const FH=4.5,base=-gradeH,pw=M(F.woodD,{roughness:.9}),rw=M(F.wood,{roughness:.9});   // fences sit on grade
+  // build a fence along a segment: posts + two rails. foot => a solid foundation wall (grade->floor) with the railing above it (porch rail)
+  function buildFence(x1,z1,x2,z2,foot){const len=Math.hypot(x2-x1,z2-z1);if(len<0.25)return;
+    const FH=4.5,railBase=foot?0:-gradeH,pw=M(F.woodD,{roughness:.9}),rw=M(F.wood,{roughness:.9}),wallMat=M(F.stone,{roughness:.9});
     const horiz=Math.abs(z2-z1)<Math.abs(x2-x1),n=Math.max(1,Math.round(len/0.5));let run=null;
     const build=(ax,az,bx,bz)=>{const l=Math.hypot(bx-ax,bz-az);if(l<0.4)return;const hz=Math.abs(bz-az)<Math.abs(bx-ax),np=Math.max(1,Math.round(l/6));
-      for(let k=0;k<=np;k++){const t=k/np;world.add(box(0.3,FH,0.3,pw,ax+(bx-ax)*t-CX,base,CZ-(az+(bz-az)*t)));}
-      [1.6,3.4].forEach(ry=>world.add(box(hz?l:0.12,0.25,hz?0.12:l,rw,(ax+bx)/2-CX,base+ry,CZ-(az+bz)/2)));};
+      if(foot&&gradeH>0)world.add(box(hz?l:0.5,gradeH,hz?0.5:l,wallMat,(ax+bx)/2-CX,-gradeH,CZ-(az+bz)/2));   // solid foundation wall grade->floor
+      for(let k=0;k<=np;k++){const t=k/np;world.add(box(0.3,FH,0.3,pw,ax+(bx-ax)*t-CX,railBase,CZ-(az+(bz-az)*t)));}
+      [1.6,3.4].forEach(ry=>world.add(box(hz?l:0.12,0.25,hz?0.12:l,rw,(ax+bx)/2-CX,railBase+ry,CZ-(az+bz)/2)));};
     const flush=()=>{if(run){build(run.x1,run.z1,run.x2,run.z2);run=null;}};   // skip door/doorway gaps so they read as open
     for(let k=0;k<n;k++){const mx=x1+(x2-x1)*(k+0.5)/n,mz=z1+(z2-z1)*(k+0.5)/n,draw=!gapHit(mx,mz,horiz);
       const sx=x1+(x2-x1)*k/n,sz=z1+(z2-z1)*k/n,ex=x1+(x2-x1)*(k+1)/n,ez=z1+(z2-z1)*(k+1)/n;
@@ -336,7 +338,7 @@ function build(L){
   if(footprint){                                          // new model: outline = exterior, iwalls = interior
     for(let i=0;i<footprint.length;i++){const p=footprint[i],q=footprint[(i+1)%footprint.length];buildWallAlong(p[0],p[1],q[0],q[1],true);}
     iwalls.forEach((w,wi)=>{if(iwallsHide3d[wi])return;
-      if(iwallsFence[wi]){for(let i=0;i+1<w.length;i++)buildFence(w[i][0],w[i][1],w[i+1][0],w[i+1][1]);return;}
+      if(iwallsFence[wi]){for(let i=0;i+1<w.length;i++)buildFence(w[i][0],w[i][1],w[i+1][0],w[i+1][1],iwallsFenceFoot[wi]);return;}
       for(let i=0;i+1<w.length;i++)buildWallAlong(w[i][0],w[i][1],w[i+1][0],w[i+1][1],false);});
   } else {                                                // legacy saves (wings/rooms only): derive walls from room edges
     const drawn=new Set();
