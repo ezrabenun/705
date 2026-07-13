@@ -1244,6 +1244,16 @@ function clampView(){
   view.ty=clamp(view.ty, rect.height-ch, 0);
 }
 function resetView(){view={scale:1,tx:0,ty:0};applyView();}
+// desktop: mouse-wheel zooms about the cursor (crisp vector zoom, up to MAXZ); drag empty space to pan, double-click empty to reset
+svg.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const rect=wrap.getBoundingClientRect(),fx=e.clientX-rect.left,fy=e.clientY-rect.top;
+  const ns=clamp(view.scale*(1-Math.sign(e.deltaY)*0.12),1,MAXZ);
+  if(ns===view.scale)return;
+  view.tx=fx-(fx-view.tx)*(ns/view.scale);
+  view.ty=fy-(fy-view.ty)*(ns/view.scale);
+  view.scale=ns;clampView();applyView();
+},{passive:false});
 
 function feetFromEvent(e){
   const pt=svg.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;
