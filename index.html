@@ -41,6 +41,7 @@
   #plan [data-fresize]{pointer-events:all;cursor:nwse-resize;}
   #plan [data-fpt]{pointer-events:all;cursor:move;}
   #plan [data-fadd]{pointer-events:all;cursor:copy;}
+  #plan [data-fedge]{pointer-events:all;cursor:move;}
   #plan [data-iwpt]{pointer-events:all;cursor:move;}
   #plan [data-iwadd]{pointer-events:all;cursor:copy;}
   #plan [data-iwmove]{pointer-events:all;}
@@ -362,6 +363,7 @@ let openings=[];
 // Seeded from the legacy `wings` frame; editable corner-by-corner on the plan.
 let footprint=wingsToPolygon(wings);
 let editOutline=false;                        // when true, the plan shows draggable outline corners
+let selectedEdge=null;                        // index of the outline edge selected for arrow-key nudging
 // interior walls: free-drawn polylines [[x,y],...] (ft). Seeded from the room layout; edited on the plan.
 let iwalls=roomsToIWalls();
 let editWalls=false;                          // when true, interior-wall corners are draggable
@@ -643,6 +645,24 @@ function nudgeWall(wi,ddx,ddy){
   else w.forEach(p=>{p[0]+=ddx;p[1]+=ddy;});
   adj.forEach(ri=>snapRoomToWalls(rooms[ri]));
   renderPlan();scheduleSave();buildWallsPanel();}
+// move a room (and its polygon) by (dx,dy)
+function nudgeRoom(i,dx,dy){const r=rooms[i];if(!r)return;
+  if(r.poly)r.poly=r.poly.map(p=>[p[0]+dx,p[1]+dy]);
+  r.x+=dx;r.y+=dy;renderList();renderPlan();scheduleSave();}
+// slide one outer-wall (outline) edge perpendicular by (ddx,ddy); interior walls butting it and its rooms follow
+function nudgeOutlineEdge(i,ddx,ddy){const n=footprint.length,a=footprint[i],b=footprint[(i+1)%n];
+  const isV=Math.abs(a[0]-b[0])<1e-6,isH=Math.abs(a[1]-b[1])<1e-6;if(!isV&&!isH)return;
+  const axis=isV?a[0]:a[1],lo=isV?Math.min(a[1],b[1]):Math.min(a[0],b[0]),hi=isV?Math.max(a[1],b[1]):Math.max(a[0],b[0]);
+  const extH=walls.ext/24,tol=extH+0.25,ends=[];   // interior-wall ends butting this outer wall (near its inner face)
+  iwalls.forEach(w=>{if(w.length<2)return;[w[0],w[w.length-1]].forEach(E=>{
+    if(isV){if(Math.abs(E[0]-axis)<tol&&E[1]>=lo-0.25&&E[1]<=hi+0.25)ends.push(E);}
+    else{if(Math.abs(E[1]-axis)<tol&&E[0]>=lo-0.25&&E[0]<=hi+0.25)ends.push(E);}});});
+  const adj=[];rooms.forEach((r,ri)=>{if(r.open)return;const bb=roomBBox(r);
+    if(isV){if((Math.abs(bb.x-axis)<tol||Math.abs(bb.x+bb.w-axis)<tol)&&Math.min(bb.y+bb.h,hi)-Math.max(bb.y,lo)>0.3)adj.push(ri);}
+    else{if((Math.abs(bb.y-axis)<tol||Math.abs(bb.y+bb.h-axis)<tol)&&Math.min(bb.x+bb.w,hi)-Math.max(bb.x,lo)>0.3)adj.push(ri);}});
+  if(isV){a[0]+=ddx;b[0]+=ddx;ends.forEach(E=>E[0]+=ddx);}else{a[1]+=ddy;b[1]+=ddy;ends.forEach(E=>E[1]+=ddy);}
+  adj.forEach(ri=>snapRoomToWalls(rooms[ri]));
+  renderPlan();scheduleSave();buildFramePanel();}
 // distance from a point to a segment, and which kind of wall (if any) is under a point — for double-click/long-press editing
 function segDist(px,py,ax,ay,bx,by){const dx=bx-ax,dy=by-ay,L2=dx*dx+dy*dy;let t=L2?((px-ax)*dx+(py-ay)*dy)/L2:0;t=Math.max(0,Math.min(1,t));return Math.hypot(px-(ax+t*dx),py-(ay+t*dy));}
 function wallHitType(px,py,thresh){
@@ -733,7 +753,7 @@ function buildFramePanel(){
     <span style="margin-left:10px;font-size:.82rem;color:var(--ink-soft)">Corners: ${footprint.length}</span>
     <button class="btn ghost" id="rectoutlinebtn" style="margin-left:10px">Reset to rectangle</button>
   </div>`;
-  document.getElementById('editoutlinebtn').onclick=()=>{editOutline=!editOutline;buildFramePanel();renderPlan();};
+  document.getElementById('editoutlinebtn').onclick=()=>{editOutline=!editOutline;if(!editOutline)selectedEdge=null;buildFramePanel();renderPlan();};
   document.getElementById('rectoutlinebtn').onclick=()=>{
     if(!confirm('Replace the outline with a plain rectangle around its current extent?'))return;
     footprint=[[g.minX,g.minY],[g.maxX,g.minY],[g.maxX,g.maxY],[g.minX,g.maxY]];
@@ -1027,7 +1047,9 @@ function drawOutline(){
   for(let i=0;i<n;i++){
     const p=footprint[i],q=footprint[(i+1)%n];
     const mx=(p[0]+q[0])/2,my=(p[1]+q[1])/2;
+    if(i===selectedEdge)svg.appendChild(el('line',{x1:fx(p[0]),y1:fyR(p[1]),x2:fx(q[0]),y2:fyR(q[1]),stroke:'var(--blue)','stroke-width':Math.max(4,walls.ext/12*PX+3),'stroke-opacity':.45}));
     svg.appendChild(el('line',{x1:fx(p[0]),y1:fyR(p[1]),x2:fx(q[0]),y2:fyR(q[1]),stroke:'var(--blue)','stroke-width':1.5,'stroke-opacity':.55}));
+    svg.appendChild(el('line',{x1:fx(p[0]),y1:fyR(p[1]),x2:fx(q[0]),y2:fyR(q[1]),stroke:'transparent','stroke-width':12,'data-fedge':i}));   // click to select this outer wall
     const add=el('circle',{cx:fx(mx),cy:fyR(my),r:7,fill:'var(--blue)',stroke:'#fff','stroke-width':1.5,'data-fadd':i});
     add.style.cursor='copy';svg.appendChild(add);
     const plus=txt(fx(mx),fyR(my)+3.6,'','+');plus.setAttribute('fill','#fff');plus.setAttribute('font-size','12');plus.setAttribute('font-weight','700');plus.style.pointerEvents='none';svg.appendChild(plus);
@@ -1298,6 +1320,8 @@ svg.addEventListener('pointerdown',e=>{
     if(fa!=null){const i=+fa,q=footprint[(i+1)%footprint.length];
       footprint.splice(i+1,0,[snap((footprint[i][0]+q[0])/2),snap((footprint[i][1]+q[1])/2)]);
       renderPlan();scheduleSave();e.preventDefault();return;}
+    const fe=e.target.getAttribute('data-fedge');
+    if(fe!=null){selectedEdge=+fe;selectedWall=selected=selectedFurn=selectedOpening=selectedDim=null;renderPlan();e.preventDefault();return;}
   }
   if(editWalls){                                    // interior-wall edit mode: drag a point, or add one on a segment
     const iw=e.target.getAttribute('data-iwpt');
@@ -1506,16 +1530,20 @@ svg.addEventListener('dblclick',e=>{
   // otherwise: double-click a wall to start editing it; double-click empty space to finish editing
   const f=feetFromEvent(e);
   if(editWallAt(f.x,f.r)){e.preventDefault();return;}
-  if(editWalls||editOutline){editWalls=false;editOutline=false;selectedWall=null;buildWallsPanel();buildFramePanel();renderPlan();e.preventDefault();}
+  if(editWalls||editOutline){editWalls=false;editOutline=false;selectedWall=null;selectedEdge=null;buildWallsPanel();buildFramePanel();renderPlan();e.preventDefault();}
 });
 document.addEventListener('keydown',e=>{
-  if(editWalls&&selectedWall!=null&&iwalls[selectedWall]&&e.key.startsWith('Arrow')){   // nudge the selected wall 1"
-    const s=1/12;
-    if(e.key==='ArrowLeft')nudgeWall(selectedWall,-s,0);
-    else if(e.key==='ArrowRight')nudgeWall(selectedWall,s,0);
-    else if(e.key==='ArrowUp')nudgeWall(selectedWall,0,s);
-    else if(e.key==='ArrowDown')nudgeWall(selectedWall,0,-s);
-    e.preventDefault();return;
+  if(e.key.startsWith('Arrow')&&!(e.ctrlKey||e.metaKey)&&!/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)){   // nudge whatever is selected by 1"
+    const s=1/12, dx=e.key==='ArrowLeft'?-s:e.key==='ArrowRight'?s:0, dy=e.key==='ArrowUp'?s:e.key==='ArrowDown'?-s:0;
+    let did=true;
+    if(editWalls&&selectedWall!=null&&iwalls[selectedWall])nudgeWall(selectedWall,dx,dy);
+    else if(editOutline&&selectedEdge!=null&&footprint[selectedEdge])nudgeOutlineEdge(selectedEdge,dx,dy);
+    else if(selectedFurn!=null&&furniture[selectedFurn]){const f=furniture[selectedFurn];f.cx+=dx;f.cy+=dy;renderFurniture();renderPlan();scheduleSave();}
+    else if(selected!=null&&rooms[selected])nudgeRoom(selected,dx,dy);
+    else if(selectedOpening!=null&&openings[selectedOpening]){const o=openings[selectedOpening];o.x+=dx;o.y+=dy;renderOpenings();renderPlan();scheduleSave();}
+    else if(selectedDim!=null&&dims[selectedDim]){const m=dims[selectedDim];m.a=[m.a[0]+dx,m.a[1]+dy];m.b=[m.b[0]+dx,m.b[1]+dy];buildDimsPanel();renderPlan();scheduleSave();}
+    else did=false;
+    if(did){e.preventDefault();return;}
   }
   if(e.key==='r'||e.key==='R'){                    // rotate the selected furniture 90°
     if(selectedFurn!=null){furniture[selectedFurn].rot=((furniture[selectedFurn].rot||0)+90)%360;renderFurniture();renderPlan();scheduleSave();}
@@ -1532,6 +1560,7 @@ document.addEventListener('keydown',e=>{
   else if(selectedOpening!=null){selectedOpening=null;renderPlan();}
   else if(selected!=null){selected=null;renderPlan();}
   else if(selectedDim!=null){selectedDim=null;renderPlan();}
+  else if(selectedEdge!=null){selectedEdge=null;renderPlan();}
 });
 
 /* ---------- room list ---------- */
