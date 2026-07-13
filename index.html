@@ -315,8 +315,9 @@ const FURN={
   plant:{lbl:"Plant",w:1.6,d:1.6,c:"#4f7a48"},
   washer:{lbl:"Washer / Dryer",w:2.4,d:2.2,c:"#ededed"},
   rug:{lbl:"Rug",w:8,d:6,c:"#b1493f"},
+  stairs:{lbl:"Stairs",w:3,d:10,c:"#c9b79c"},
 };
-const FURN_ORDER=["sofa","loveseat","armchair","diningtable","table","desk","chair","stool","bed","nightstand","dresser","counter","island","fridge","stove","sink","toilet","tub","shower","bookshelf","tv","plant","washer","rug"];
+const FURN_ORDER=["sofa","loveseat","armchair","diningtable","table","desk","chair","stool","bed","nightstand","dresser","counter","island","fridge","stove","sink","toilet","tub","shower","bookshelf","tv","plant","washer","rug","stairs"];
 
 let wings=[
   {w:20.8,d:50,s:0},
@@ -1230,6 +1231,13 @@ function furnSymbol(type,W,H,g){
     case'plant':C(0,0,Math.min(hw,hh)-1,'#8a5a3c');C(0,0,Math.min(hw,hh)*0.7,'#4f7a48');break;
     case'washer':foot('#ededed',1,2);C(0,0,Math.min(hw,hh)*0.55,'#cfd9e2');break;
     case'rug':foot(c,.2,3).setAttribute('stroke-dasharray','5 3');break;
+    case'stairs':{foot('#e6ddcf',.95,1);                            // treads perpendicular to the run + an "up" arrow
+      const horiz=W>H, along=horiz?W:H, across=horiz?H:W, n=Math.max(3,Math.round((along/PX)/0.9));
+      for(let k=1;k<n;k++){const pp=-along/2+along*k/n; if(horiz)L(pp,-across/2,pp,across/2); else L(-across/2,pp,across/2,pp);}
+      const a=along/2-3, hd=4;
+      if(horiz){L(a,0,-a,0);L(-a,0,-a+hd,-hd);L(-a,0,-a+hd,hd);}
+      else{L(0,a,0,-a);L(0,-a,-hd,-a+hd);L(0,-a,hd,-a+hd);}
+      break;}
     default:foot(c,.6,2);
   }
 }
