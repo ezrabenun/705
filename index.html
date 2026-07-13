@@ -696,6 +696,10 @@ function wallHitType(px,py,thresh){
   if(iw<=thresh&&iw<=ol)return 'iwall';
   if(ol<=thresh)return 'outline';
   return null;}
+// index of the outline (exterior-wall) edge nearest a point, within thresh, or -1
+function nearestOutlineEdge(px,py,thresh){let best=-1,bd=thresh==null?Infinity:thresh;
+  for(let i=0;i<footprint.length;i++){const p=footprint[i],q=footprint[(i+1)%footprint.length];const d=segDist(px,py,p[0],p[1],q[0],q[1]);if(d<bd){bd=d;best=i;}}
+  return best;}
 // axis-aligned interior wall segments (skips any diagonal runs)
 function interiorSegments(){const S=[];iwalls.forEach(w=>{for(let i=0;i+1<w.length;i++){const a=w[i],b=w[i+1];
   if(Math.abs(a[0]-b[0])<1e-6)S.push({v:true,ax:a[0],lo:Math.min(a[1],b[1]),hi:Math.max(a[1],b[1])});
@@ -1905,6 +1909,9 @@ function renderCtx(panel){
         `<button data-act="wfence">${iwalls[ctx.iwall]&&iwalls[ctx.iwall].fence?'▥ Make solid wall':'⧉ Make fence'}</button>`+
         (iwalls[ctx.iwall]&&iwalls[ctx.iwall].fence?`<button data-act="wfoot">${iwalls[ctx.iwall].foot?'▔ Remove foundation':'▁ Foundation below'}</button>`:'')+
         `<button class="danger" data-act="wdel">✕ Delete wall</button>`:'')+
+      (ctx.outline!=null?`<div class="hd">Exterior wall</div>`+
+        `<button data-act="oedit">✎ Edit outline</button>`+
+        `<button class="danger" data-act="osecdel">✕ Delete wall section</button>`:'')+
       (ctx.room!=null&&rooms[ctx.room]?`<div class="hd">${rooms[ctx.room].name||'Room'}</div>`+
         `<button data-act="rsnap">⤢ Snap room to walls</button>`+
         `<button data-act="rrename">✎ Rename room</button>`+
@@ -1921,7 +1928,9 @@ function openCtxMenu(target,cx,cy){
   const fi=g('data-furn'),oi=g('data-open'),ri=g('data-room'),di=g('data-dim');
   if(fi!=null)ctx={kind:'furn',idx:+fi,feet};
   else if(oi!=null)ctx={kind:'open',idx:+oi,feet};
-  else{const iwi=nearestIWall(feet.x,feet.r,0.8);ctx={kind:'add',feet,room:(ri!=null?+ri:null),iwall:iwi>=0?iwi:null,dim:(di!=null?+di:null)};}
+  else{const iwi=nearestIWall(feet.x,feet.r,0.8);
+    const oe=iwi<0?nearestOutlineEdge(feet.x,feet.r,0.8):-1;   // offer the outer wall only when not on an interior wall
+    ctx={kind:'add',feet,room:(ri!=null?+ri:null),iwall:iwi>=0?iwi:null,dim:(di!=null?+di:null),outline:oe>=0?oe:null};}
   renderCtx('root');showCtx(cx,cy);
 }
 svg.addEventListener('contextmenu',e=>{e.preventDefault();openCtxMenu(e.target,e.clientX,e.clientY);});
@@ -1944,6 +1953,12 @@ ctxEl.addEventListener('click',e=>{
     case'wfence':if(ctx.iwall!=null&&iwalls[ctx.iwall]){iwalls[ctx.iwall].fence=!iwalls[ctx.iwall].fence;renderPlan();buildWallsPanel();scheduleSave();}break;
     case'wfoot':if(ctx.iwall!=null&&iwalls[ctx.iwall]){iwalls[ctx.iwall].foot=!iwalls[ctx.iwall].foot;renderPlan();buildWallsPanel();scheduleSave();}break;
     case'wdel':if(ctx.iwall!=null){iwalls.splice(ctx.iwall,1);renderPlan();buildWallsPanel();scheduleSave();}break;
+    case'oedit':editOutline=true;editWalls=false;drawWall=null;buildFramePanel();buildWallsPanel();renderPlan();break;
+    case'osecdel':{const i=ctx.outline;                       // delete an outer-wall section: drop its two corners, join the neighbours with one straight wall
+      if(i!=null&&footprint.length>4){const j=(i+1)%footprint.length;
+        [i,j].sort((a,b)=>b-a).forEach(k=>footprint.splice(k,1));
+        footprint=simplifyPoly(footprint);renderPlan();buildFramePanel();buildWallsPanel();scheduleSave();}
+      else if(footprint.length<=4)ioStatus('Need more than 4 corners to delete a section',true);break;}
     case'rsnap':if(ctx.room!=null&&snapRoomToWalls(rooms[ctx.room])){renderList();renderPlan();scheduleSave();}break;
     case'rrename':{if(ctx.room==null)break;const nm=prompt('Rename room',rooms[ctx.room].name);
       if(nm!=null){rooms[ctx.room].name=nm||rooms[ctx.room].name;renderList();renderPlan();scheduleSave();}break;}
