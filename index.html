@@ -909,8 +909,10 @@ function renderPlan(){
   // interior walls — free-drawn polylines, stroked at the interior wall thickness
   const itPx=Math.max(1,walls.int/12*PX);
   iwalls.forEach(w=>{if(w.length<2)return;
-    svg.appendChild(el('path',{d:"M "+w.map(p=>fx(p[0])+" "+fyR(p[1])).join(" L "),
-      fill:'none',stroke:'var(--wall)','stroke-width':itPx,'stroke-linecap':'square','stroke-linejoin':'miter'}));});
+    const at={d:"M "+w.map(p=>fx(p[0])+" "+fyR(p[1])).join(" L "),
+      fill:'none',stroke:'var(--wall)','stroke-width':itPx,'stroke-linecap':'square','stroke-linejoin':'miter'};
+    if(w.hide3d){at['stroke-dasharray']='2 5';at['stroke-opacity']=0.35;}   // 2D-only wall: drawn faint/dashed, omitted from the 3D view
+    svg.appendChild(el('path',at));});
   // exterior wall shell (along footprint outline)
   svg.appendChild(el('path',{d:"M "+pts.map(p=>fx(p[0])+" "+fyR(p[1])).join(" L ")+" Z",
     fill:'none',stroke:'var(--ink)','stroke-width':Math.max(1.5,walls.ext/12*PX),'stroke-linejoin':'miter'}));
@@ -1770,6 +1772,7 @@ function renderCtx(panel){
       (ctx.dim!=null?`<div class="hd">Dimension</div><button class="danger" data-act="dimdel2">✕ Delete dimension</button>`:'')+
       (ctx.iwall!=null?`<div class="hd">Interior wall</div>`+
         `<button data-act="wedit">✎ Edit wall</button>`+
+        `<button data-act="whide3d">${iwalls[ctx.iwall]&&iwalls[ctx.iwall].hide3d?'◳ Show in 3D':'◲ Hide in 3D'}</button>`+
         `<button class="danger" data-act="wdel">✕ Delete wall</button>`:'')+
       (ctx.room!=null&&rooms[ctx.room]?`<div class="hd">${rooms[ctx.room].name||'Room'}</div>`+
         `<button data-act="rsnap">⤢ Snap room to walls</button>`+
@@ -1806,6 +1809,7 @@ ctxEl.addEventListener('click',e=>{
     case'adddim':dimArmed=true;dimA=snapDimPoint(feet.x,feet.r);buildDimsPanel();renderPlan();break;
     case'dimdel2':if(ctx.dim!=null){dims.splice(ctx.dim,1);selectedDim=null;buildDimsPanel();renderPlan();scheduleSave();}break;
     case'wedit':if(ctx.iwall!=null){editWalls=true;editOutline=false;drawWall=null;selectedWall=ctx.iwall;buildWallsPanel();renderPlan();}break;
+    case'whide3d':if(ctx.iwall!=null&&iwalls[ctx.iwall]){iwalls[ctx.iwall].hide3d=!iwalls[ctx.iwall].hide3d;renderPlan();buildWallsPanel();scheduleSave();}break;
     case'wdel':if(ctx.iwall!=null){iwalls.splice(ctx.iwall,1);renderPlan();buildWallsPanel();scheduleSave();}break;
     case'rsnap':if(ctx.room!=null&&snapRoomToWalls(rooms[ctx.room])){renderList();renderPlan();scheduleSave();}break;
     case'rrename':{if(ctx.room==null)break;const nm=prompt('Rename room',rooms[ctx.room].name);
@@ -1884,7 +1888,10 @@ function applyData(d){
       if(Array.isArray(r.poly)&&r.poly.length>=3)rm.poly=r.poly.map(p=>[+p[0]||0,+p[1]||0]);
       return rm;});
   // interior walls: use saved ones, else seed from the room layout (old saves had none)
-  iwalls=Array.isArray(d.iwalls)?d.iwalls.filter(w=>Array.isArray(w)&&w.length>=2).map(w=>w.map(p=>[+p[0]||0,+p[1]||0])):roomsToIWalls();
+  if(Array.isArray(d.iwalls)){const hf=Array.isArray(d.iwallsHide3d)?d.iwallsHide3d:[];   // hide3d flags are a parallel bool array (aligned before filtering)
+    iwalls=d.iwalls.map((w,i)=>({w,h:!!hf[i]})).filter(o=>Array.isArray(o.w)&&o.w.length>=2)
+      .map(o=>{const a=o.w.map(p=>[+p[0]||0,+p[1]||0]);if(o.h)a.hide3d=true;return a;});
+  }else iwalls=roomsToIWalls();
   openings=Array.isArray(d.openings)?d.openings.map(o=>({
     type:OTYPES.includes(o.type)?o.type:'door',
     orient:o.orient==='v'?'v':'h',
@@ -1900,7 +1907,7 @@ function applyData(d){
 async function saveLayout(manual){
   if(!STORE){if(manual)ioStatus("In-app save isn't available here — use Export instead",true);return;}
   try{
-    await STORE.set(KEY,JSON.stringify({plot,walls,footprint,iwalls,rooms,openings,furniture,dims,savedAt:new Date().toISOString()}),false);
+    await STORE.set(KEY,JSON.stringify({plot,walls,footprint,iwalls,iwallsHide3d:iwalls.map(w=>!!w.hide3d),rooms,openings,furniture,dims,savedAt:new Date().toISOString()}),false);
     if(!localDraftExists){localDraftExists=true;refreshVersions();}   // surface the local-auto-save entry the first time
     ioStatus("Auto-saved ✓");
   }
@@ -1985,6 +1992,7 @@ function exportJSON(){
     walls:{ext:walls.ext,int:walls.int},
     footprint:footprint.map(p=>[p[0],p[1]]),
     iwalls:iwalls.map(w=>w.map(p=>[p[0],p[1]])),
+    iwallsHide3d:iwalls.map(w=>!!w.hide3d),
     rooms:rooms.map(r=>{const o={name:r.name,desired:r.desired,x:r.x,y:r.y,w:r.w,h:r.h,color:r.color,open:!!r.open};if(r.poly)o.poly=r.poly.map(p=>[p[0],p[1]]);return o;}),
     openings:openings.map(o=>({type:o.type,orient:o.orient,x:o.x,y:o.y,len:o.len,flip:!!o.flip,hinge:!!o.hinge})),
     furniture:furniture.map(f=>({type:f.type,cx:f.cx,cy:f.cy,w:f.w,d:f.d,rot:f.rot||0})),
@@ -2040,7 +2048,7 @@ async function putVersions(obj){
   if(!SHARED)return false;
   try{await SHARED.set(VKEY,JSON.stringify(obj),false);return true;}catch(e){return false;}
 }
-function snapshot(){return {plot,walls,footprint,iwalls,rooms,openings,furniture,dims,savedAt:new Date().toISOString()};}
+function snapshot(){return {plot,walls,footprint,iwalls,iwallsHide3d:iwalls.map(w=>!!w.hide3d),rooms,openings,furniture,dims,savedAt:new Date().toISOString()};}
 const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 function updateStarState(){
   const name=document.getElementById('vername').value.trim();

@@ -265,9 +265,10 @@ function build(L){
     flush();
   }
   const iwalls=Array.isArray(L.iwalls)?L.iwalls:[];
+  const iwallsHide3d=Array.isArray(L.iwallsHide3d)?L.iwallsHide3d:[];   // walls flagged 2D-only in the editor are omitted here
   if(footprint){                                          // new model: outline = exterior, iwalls = interior
     for(let i=0;i<footprint.length;i++){const p=footprint[i],q=footprint[(i+1)%footprint.length];buildWallAlong(p[0],p[1],q[0],q[1],true);}
-    iwalls.forEach(w=>{for(let i=0;i+1<w.length;i++)buildWallAlong(w[i][0],w[i][1],w[i+1][0],w[i+1][1],false);});
+    iwalls.forEach((w,wi)=>{if(iwallsHide3d[wi])return;for(let i=0;i+1<w.length;i++)buildWallAlong(w[i][0],w[i][1],w[i+1][0],w[i+1][1],false);});
   } else {                                                // legacy saves (wings/rooms only): derive walls from room edges
     const drawn=new Set();
     closed.forEach(r=>{const a=r.x,b=r.y,c=r.x+r.w,d=r.y+r.h;
