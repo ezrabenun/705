@@ -1182,7 +1182,7 @@ function drawFurniture(){
   furniture.forEach((f,i)=>{
     const W=f.w*PX,H=f.d*PX,sx=fx(f.cx),sy=fyR(f.cy);
     const g=el('g',{transform:`translate(${sx} ${sy}) rotate(${f.rot||0})`});
-    furnSymbol(f.type,W,H,g);
+    furnSymbol(f.type,W,H,g,f);
     // move-body first (so the resize/rotate handles below sit on top of it and win the click)
     const body=el('rect',{x:-W/2,y:-H/2,width:W,height:H,fill:'transparent','data-furn':i});
     if(i===selectedFurn)body.setAttribute('class','fsel');
@@ -1197,7 +1197,20 @@ function drawFurniture(){
     svg.appendChild(g);
   });
 }
-function furnSymbol(type,W,H,g){
+// stair geometry in local feet (u = width axis, v = depth axis, origin at centre). h0/h1 are 0..1 rise fractions.
+// straight = one run; L = one 90° turn + landing; U = switchback (turn, platform, turn again).
+function stairLayout(shape,w,d){
+  if(shape==='L'){const R=Math.max(2,Math.min(w,d)*0.5);
+    return {runs:[{u0:-w/2,u1:-w/2+R,v0:-d/2,v1:d/2-R,axis:'v',h0:0,h1:.5},
+                  {u0:-w/2+R,u1:w/2,v0:d/2-R,v1:d/2,axis:'u',h0:.5,h1:1}],
+            landings:[{u0:-w/2,u1:-w/2+R,v0:d/2-R,v1:d/2,h:.5}]};}
+  if(shape==='U'){const L=Math.max(2,Math.min(d*0.34,w)),g=Math.min(0.4,w*0.05),rw=(w-2*g)/2;
+    return {runs:[{u0:-w/2,u1:-w/2+rw,v0:-d/2,v1:d/2-L,axis:'v',h0:0,h1:.5},
+                  {u0:w/2-rw,u1:w/2,v0:d/2-L,v1:-d/2,axis:'v',h0:.5,h1:1}],
+            landings:[{u0:-w/2,u1:w/2,v0:d/2-L,v1:d/2,h:.5}]};}
+  return {runs:[{u0:-w/2,u1:w/2,v0:-d/2,v1:d/2,axis:'v',h0:0,h1:1}],landings:[]};
+}
+function furnSymbol(type,W,H,g,f){
   const c=(FURN[type]||{}).c||'#b0b4bb',ink='var(--ink)',hw=W/2,hh=H/2;
   const A=(tag,at)=>{const e=el(tag,at);g.appendChild(e);return e;};
   const R=(x,y,w,h,fill,o,rx)=>A('rect',{x,y,width:w,height:h,fill:(fill==null?'none':fill),'fill-opacity':(o==null?1:o),stroke:ink,'stroke-width':1,rx:(rx||0)});
@@ -1231,12 +1244,17 @@ function furnSymbol(type,W,H,g){
     case'plant':C(0,0,Math.min(hw,hh)-1,'#8a5a3c');C(0,0,Math.min(hw,hh)*0.7,'#4f7a48');break;
     case'washer':foot('#ededed',1,2);C(0,0,Math.min(hw,hh)*0.55,'#cfd9e2');break;
     case'rug':foot(c,.2,3).setAttribute('stroke-dasharray','5 3');break;
-    case'stairs':{foot('#e6ddcf',.95,1);                            // treads perpendicular to the run + an "up" arrow
-      const horiz=W>H, along=horiz?W:H, across=horiz?H:W, n=Math.max(3,Math.round((along/PX)/0.9));
-      for(let k=1;k<n;k++){const pp=-along/2+along*k/n; if(horiz)L(pp,-across/2,pp,across/2); else L(-across/2,pp,across/2,pp);}
-      const a=along/2-3, hd=4;
-      if(horiz){L(a,0,-a,0);L(-a,0,-a+hd,-hd);L(-a,0,-a+hd,hd);}
-      else{L(0,a,0,-a);L(0,-a,-hd,-a+hd);L(0,-a,hd,-a+hd);}
+    case'stairs':{foot('#e6ddcf',.95,1);                            // treads across each run + an "up" arrow; landings drawn plain
+      const lay=stairLayout((f&&f.shape)||'straight', W/PX, H/PX), X=u=>u*PX, Y=v=>v*PX;
+      lay.runs.forEach(r=>{
+        const len=r.axis==='v'?Math.abs(r.v1-r.v0):Math.abs(r.u1-r.u0), n=Math.max(2,Math.round(len/0.9));
+        for(let k=1;k<n;k++){const t=k/n;
+          if(r.axis==='v'){const v=r.v0+(r.v1-r.v0)*t;L(X(r.u0),Y(v),X(r.u1),Y(v));}
+          else{const u=r.u0+(r.u1-r.u0)*t;L(X(u),Y(r.v0),X(u),Y(r.v1));}}
+        if(r.axis==='v'){const x=X((r.u0+r.u1)/2),y0=Y(r.v0),y1=Y(r.v1),s=Math.sign(y1-y0);A('line',{x1:x,y1:y0,x2:x,y2:y1,stroke:ink,'stroke-width':1.2});L(x,y1,x-3,y1-3*s);L(x,y1,x+3,y1-3*s);}
+        else{const y=Y((r.v0+r.v1)/2),x0=X(r.u0),x1=X(r.u1),s=Math.sign(x1-x0);A('line',{x1:x0,y1:y,x2:x1,y2:y,stroke:ink,'stroke-width':1.2});L(x1,y,x1-3*s,y-3);L(x1,y,x1-3*s,y+3);}
+      });
+      lay.landings.forEach(nd=>R(X(nd.u0),Y(nd.v0),X(nd.u1)-X(nd.u0),Y(nd.v1)-Y(nd.v0),'#d8ccb6',.95,1));
       break;}
     default:foot(c,.6,2);
   }
@@ -1765,7 +1783,9 @@ let ctx=null;   // {kind:'add'|'furn'|'open', idx?, feet}
 function renderCtx(panel){
   let h='';
   if(ctx.kind==='furn'){
+    const isStair=furniture[ctx.idx]&&furniture[ctx.idx].type==='stairs';
     h=`<div class="hd">Furniture</div><button data-act="frot">↻ Rotate 90°</button>`+
+      (isStair?`<button data-act="fstair">⟲ Shape: ${furniture[ctx.idx].shape||'straight'}</button>`:'')+
       `<button data-act="fsel">Select</button><button class="danger" data-act="fdel">✕ Delete</button>`;
   }else if(ctx.kind==='open'){
     const o=openings[ctx.idx]||{};
@@ -1834,6 +1854,7 @@ ctxEl.addEventListener('click',e=>{
     case'addwindow':placeTool='window';placeOpening(feet);break;
     case'addfurn':placeFurn=b.dataset.type;placeFurnItem(feet);break;
     case'frot':furniture[ctx.idx].rot=((furniture[ctx.idx].rot||0)+90)%360;renderFurniture();renderPlan();scheduleSave();break;
+    case'fstair':{const f=furniture[ctx.idx];if(f){const seq=['straight','L','U'];f.shape=seq[(seq.indexOf(f.shape||'straight')+1)%seq.length];if(f.shape!=='straight'&&f.w<6)f.w=6;renderFurniture();renderPlan();scheduleSave();}break;}
     case'fsel':selectedFurn=ctx.idx;selected=null;selectedOpening=null;renderPlan();break;
     case'fdel':furniture.splice(ctx.idx,1);selectedFurn=null;renderFurniture();renderPlan();scheduleSave();break;
     case'orot':{const o=openings[ctx.idx];if(o){o.orient=o.orient==='v'?'h':'v';renderOpenings();renderPlan();scheduleSave();}break;}
@@ -1912,7 +1933,8 @@ function applyData(d){
     x:+o.x||0,y:+o.y||0,len:Math.max(0.5,+o.len||3),flip:!!o.flip,hinge:!!o.hinge})):[];
   furniture=Array.isArray(d.furniture)?d.furniture.map(f=>{const cat=FURN[f.type]||{w:3,d:3};
     return {type:FURN[f.type]?f.type:'table',cx:+f.cx||0,cy:+f.cy||0,
-      w:Math.max(0.5,+f.w||cat.w),d:Math.max(0.5,+f.d||cat.d),rot:((+f.rot||0)%360+360)%360};}):[];
+      w:Math.max(0.5,+f.w||cat.w),d:Math.max(0.5,+f.d||cat.d),rot:((+f.rot||0)%360+360)%360,
+      ...(f.shape?{shape:f.shape}:{})};}):[];
   dims=Array.isArray(d.dims)?d.dims.filter(m=>m&&Array.isArray(m.a)&&Array.isArray(m.b)).map(m=>({a:[+m.a[0]||0,+m.a[1]||0],b:[+m.b[0]||0,+m.b[1]||0]})):[];
   selected=null;selectedOpening=null;selectedFurn=null;dimArmed=false;dimA=null;
   buildPlotPanel();buildWallsPanel();buildFramePanel();buildDimsPanel();renderPlan();renderList();renderOpenings();renderFurniture();
@@ -2009,7 +2031,7 @@ function exportJSON(){
     iwallsHide3d:iwalls.map(w=>!!w.hide3d),
     rooms:rooms.map(r=>{const o={name:r.name,desired:r.desired,x:r.x,y:r.y,w:r.w,h:r.h,color:r.color,open:!!r.open};if(r.poly)o.poly=r.poly.map(p=>[p[0],p[1]]);return o;}),
     openings:openings.map(o=>({type:o.type,orient:o.orient,x:o.x,y:o.y,len:o.len,flip:!!o.flip,hinge:!!o.hinge})),
-    furniture:furniture.map(f=>({type:f.type,cx:f.cx,cy:f.cy,w:f.w,d:f.d,rot:f.rot||0})),
+    furniture:furniture.map(f=>({type:f.type,cx:f.cx,cy:f.cy,w:f.w,d:f.d,rot:f.rot||0,...(f.shape?{shape:f.shape}:{})})),
     dims:dims.map(m=>({a:[m.a[0],m.a[1]],b:[m.b[0],m.b[1]]}))};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
   const url=URL.createObjectURL(blob);const a=document.createElement('a');
