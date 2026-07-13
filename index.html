@@ -204,6 +204,7 @@
       <button class="btn ghost tool" id="tool-door">＋ Door</button>
       <button class="btn ghost tool" id="tool-doorway">＋ Doorway</button>
       <button class="btn ghost tool" id="tool-window">＋ Window</button>
+      <button class="btn ghost tool" id="tool-garage">＋ Garage door</button>
       <span class="hint" id="openhint">Tip: <b>right-click</b> (or <b>press &amp; hold</b> on touch) the plan to add or edit doors/windows right where you tap. Or pick a tool here and click a wall. Tap a placed item to move it (snaps to walls) or drag an end dot to resize.</span>
     </div>
     <table class="rooms" id="opentable">
@@ -1127,6 +1128,13 @@ function drawOpenings(){
       jamb(ax,ay);jamb(bx,by);
     }else if(o.type==='doorway'){
       jamb(ax,ay);jamb(bx,by);
+    }else if(o.type==='garage'){                    // garage door — wide gap, closed face + panel divisions
+      jamb(ax,ay);jamb(bx,by);
+      svg.appendChild(el('line',{x1:ax,y1:ay,x2:bx,y2:by,stroke:'var(--ink)','stroke-width':1.5}));
+      const n=Math.max(2,Math.round(o.len/2.5));
+      for(let k=1;k<n;k++){const t=k/n,px=ax+(bx-ax)*t,py=ay+(by-ay)*t;
+        if(horiz)svg.appendChild(el('line',{x1:px,y1:py-hd*0.55,x2:px,y2:py+hd*0.55,stroke:'var(--ink-soft)','stroke-width':0.8}));
+        else svg.appendChild(el('line',{x1:px-hd*0.55,y1:py,x2:px+hd*0.55,y2:py,stroke:'var(--ink-soft)','stroke-width':0.8}));}
     }else{                                          // door — leaf + swing arc
       const sgn=o.flip?-1:1, R=o.len*PX;
       const hpx=o.hinge?bx:ax, hpy=o.hinge?by:ay;   // hinge end (leaf pivots here)
@@ -1180,7 +1188,7 @@ function snapToWall(cx,cy,len){
   return best;
 }
 function placeOpening(feet){
-  const type=placeTool,len=type==='window'?4:3;
+  const type=placeTool,len=type==='garage'?9:type==='window'?4:3;
   const s=snapToWall(feet.x,feet.r,len)||{orient:'h',x:snap(feet.x-len/2),y:snap(feet.r),len};
   openings.push({type,orient:s.orient,x:s.x,y:s.y,len,flip:false,hinge:false});
   selectedOpening=openings.length-1;selected=null;
@@ -1188,7 +1196,7 @@ function placeOpening(feet){
   renderOpenings();renderPlan();scheduleSave();
 }
 function updateToolButtons(){
-  [['door','tool-door'],['doorway','tool-doorway'],['window','tool-window']].forEach(([k,id])=>
+  [['door','tool-door'],['doorway','tool-doorway'],['window','tool-window'],['garage','tool-garage']].forEach(([k,id])=>
     document.getElementById(id).classList.toggle('armed',placeTool===k));
   document.getElementById('furn-place').classList.toggle('armed',!!placeFurn);
   svg.classList.toggle('arming',!!placeTool||!!placeFurn);
@@ -1756,7 +1764,7 @@ document.getElementById('rn').addEventListener('keydown',e=>{if(e.key==='Enter')
 
 /* ---------- doors / windows editor ---------- */
 const olist=document.getElementById('openlist');
-const OTYPES=['door','doorway','window'];
+const OTYPES=['door','doorway','window','garage'];
 function renderOpenings(){
   if(!openings.length){olist.innerHTML='<tr><td colspan="7" class="empty">No doors or windows yet — add one above, then drag it onto a wall.</td></tr>';return;}
   olist.innerHTML=openings.map((o,i)=>`<tr>
@@ -1785,6 +1793,7 @@ olist.addEventListener('click',e=>{
 document.getElementById('tool-door').onclick=()=>armTool('door');
 document.getElementById('tool-doorway').onclick=()=>armTool('doorway');
 document.getElementById('tool-window').onclick=()=>armTool('window');
+document.getElementById('tool-garage').onclick=()=>armTool('garage');
 
 /* ---------- furniture editor ---------- */
 const flist=document.getElementById('furnlist'),furnSel=document.getElementById('furnsel'),stairEd=document.getElementById('stairedit');
@@ -1880,6 +1889,7 @@ function renderCtx(panel){
       `<button data-act="wallstart">＋ Wall from here</button>`+
       `<button data-act="adddoor">＋ Door</button>`+
       `<button data-act="adddoorway">＋ Doorway</button><button data-act="addwindow">＋ Window</button>`+
+      `<button data-act="addgarage">＋ Garage door</button>`+
       `<button data-act="furnpanel">＋ Furniture ▸</button>`+
       `<button data-act="adddim">＋ Dimension from here</button>`+
       (ctx.dim!=null?`<div class="hd">Dimension</div><button class="danger" data-act="dimdel2">✕ Delete dimension</button>`:'')+
@@ -1933,6 +1943,7 @@ ctxEl.addEventListener('click',e=>{
     case'adddoor':placeTool='door';placeOpening(feet);break;
     case'adddoorway':placeTool='doorway';placeOpening(feet);break;
     case'addwindow':placeTool='window';placeOpening(feet);break;
+    case'addgarage':placeTool='garage';placeOpening(feet);break;
     case'addfurn':placeFurn=b.dataset.type;placeFurnItem(feet);break;
     case'frot':furniture[ctx.idx].rot=((furniture[ctx.idx].rot||0)+90)%360;renderFurniture();renderPlan();scheduleSave();break;
     case'fstair':selectedFurn=ctx.idx;selected=selectedOpening=selectedDim=null;setTab('furniture');renderFurniture();renderPlan();break;

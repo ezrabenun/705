@@ -257,10 +257,16 @@ function build(L){
     if(Array.isArray(r.poly)&&r.poly.length>=3){for(let i=0;i<r.poly.length;i++)seg(r.poly[i],r.poly[(i+1)%r.poly.length]);}
     else{const x0=r.x,y0=r.y,x1=r.x+r.w,y1=r.y+r.h;seg([x0,y0],[x1,y0]);seg([x1,y0],[x1,y1]);seg([x1,y1],[x0,y1]);seg([x0,y1],[x0,y0]);}});
   // foundation around the building footprint, from grade up to the first floor, so the raised first floor reads correctly
+  // (cut where a garage door sits, so its opening is clear all the way down to grade)
   if(gradeH>0&&footprint){const fnd=M(F.stone,{roughness:.95});
+    const fseg=(x1,z1,x2,z2)=>{const l=Math.hypot(x2-x1,z2-z1);if(l<0.2)return;const hz=Math.abs(z2-z1)<Math.abs(x2-x1);world.add(box(hz?l:T_EXT,gradeH,hz?T_EXT:l,fnd,(x1+x2)/2-CX,-gradeH,CZ-(z1+z2)/2));};
     for(let i=0;i<footprint.length;i++){const a=footprint[i],b=footprint[(i+1)%footprint.length],len=Math.hypot(b[0]-a[0],b[1]-a[1]);if(len<0.2)continue;
-      const horiz=Math.abs(b[1]-a[1])<=Math.abs(b[0]-a[0]);
-      world.add(box(horiz?len:T_EXT,gradeH,horiz?T_EXT:len,fnd,(a[0]+b[0])/2-CX,-gradeH,CZ-(a[1]+b[1])/2));}}
+      const horiz=Math.abs(b[1]-a[1])<Math.abs(b[0]-a[0]),n=Math.max(1,Math.round(len/0.5));let run=null;
+      const flush=()=>{if(run){fseg(run.x1,run.z1,run.x2,run.z2);run=null;}};
+      for(let k=0;k<n;k++){const mx=a[0]+(b[0]-a[0])*(k+0.5)/n,mz=a[1]+(b[1]-a[1])*(k+0.5)/n,draw=!garageGap(mx,mz,horiz);
+        const sx=a[0]+(b[0]-a[0])*k/n,sz=a[1]+(b[1]-a[1])*k/n,ex=a[0]+(b[0]-a[0])*(k+1)/n,ez=a[1]+(b[1]-a[1])*(k+1)/n;
+        if(draw){if(run){run.x2=ex;run.z2=ez;}else run={x1:sx,z1:sz,x2:ex,z2:ez};}else flush();}
+      flush();}}
 
   // ---- walls (from walled-room edges, deduped, with door gaps) ----
   // "outside" = beyond the building footprint. Falls back to the room test if there are no wings.
@@ -276,8 +282,14 @@ function build(L){
   const openBuilding=hasFrame?rooms.filter(r=>r.open&&overlapsFrame(r)):rooms.filter(r=>r.open);
   function insideOpen(x,z){for(const r of openBuilding){if(x>r.x+0.05&&x<r.x+r.w-0.05&&z>r.y+0.05&&z<r.y+r.h-0.05)return true;}return false;}
   const isOutside=(x,z)=>hasFrame?!insideBuilding(x,z):!insideAny(x,z);
-  function gapHit(mx,mz,horiz){                     // doors & doorways cut the wall; windows do not
+  function gapHit(mx,mz,horiz){                     // doors, doorways & garage doors cut the wall; windows do not
     for(const o of openings){ if(o.type==='window')continue;
+      if(horiz){ if(o.orient==='h'&&Math.abs(mz-o.y)<0.7&&mx>o.x-0.25&&mx<o.x+o.len+0.25)return true; }
+      else     { if(o.orient==='v'&&Math.abs(mx-o.x)<0.7&&mz>o.y-0.25&&mz<o.y+o.len+0.25)return true; } }
+    return false;
+  }
+  function garageGap(mx,mz,horiz){                  // garage doors also cut the foundation, so the opening is clear from grade
+    for(const o of openings){ if(o.type!=='garage')continue;
       if(horiz){ if(o.orient==='h'&&Math.abs(mz-o.y)<0.7&&mx>o.x-0.25&&mx<o.x+o.len+0.25)return true; }
       else     { if(o.orient==='v'&&Math.abs(mx-o.x)<0.7&&mz>o.y-0.25&&mz<o.y+o.len+0.25)return true; } }
     return false;
@@ -355,6 +367,11 @@ function build(L){
   openings.forEach(o=>{ if(o.type!=='door')return; const mat=M(0xf2efe9,{roughness:.7}),s=o.flip?-1:1;
     if(o.orient==='h') world.add(box(0.16,6.7,o.len,mat,o.x-CX,FT,CZ-(o.y-s*o.len/2)));  // z is flipped, so swing sign flips
     else               world.add(box(o.len,6.7,0.16,mat,(o.x+s*o.len/2)-CX,FT,CZ-o.y)); });
+
+  // ---- garage doors (full-height panel spanning grade up to the room ceiling) ----
+  openings.forEach(o=>{ if(o.type!=='garage')return; const mat=M(0xd0d5db,{roughness:.5}),H=CEIL+gradeH;
+    if(o.orient==='h') world.add(box(o.len,H,0.32,mat,(o.x+o.len/2)-CX,-gradeH,CZ-o.y));
+    else               world.add(box(0.32,H,o.len,mat,o.x-CX,-gradeH,CZ-(o.y+o.len/2))); });
 
   // ---- furniture ----
   const stairRise=((L.plot&&+L.plot.ceilH)||9)+1;   // floor-to-floor rise for stairs (ceiling height + standard floor assembly)
