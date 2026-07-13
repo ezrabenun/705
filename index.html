@@ -444,10 +444,12 @@ function roomsToIWalls(){const r2=v=>Math.round(v*100)/100,map=new Map();
     add('v',r.x,r.y,r.y+r.h);add('v',r.x+r.w,r.y,r.y+r.h);
     add('h',r.y,r.x,r.x+r.w);add('h',r.y+r.h,r.x,r.x+r.w);});
   return cleanWalls([...map.values()]);}
+// grab radius in feet that stays ~14 screen px at any zoom, so snapping feels the same fitted or zoomed in
+function connRadius(){const m=svg.getScreenCTM(),s=(m?m.a:1)*PX;return Math.max(0.5,Math.min(2,14/s));}
 // snap a wall point to the grid, onto nearby outer-wall lines, to existing junctions, and to right angles vs a reference
 function snapWallPoint(x,y,ref,alt,skipWall){
   if(alt)return [snap(x),snap(y)];
-  const extHalf=walls.ext/24, conn=0.75;                    // connect radius (raw, before grid) so outer-wall grab is sticky
+  const extHalf=walls.ext/24, conn=connRadius();            // connect radius (raw, before grid) so outer-wall grab is sticky
   let nx=x,ny=y,snX=false,snY=false;                        // snX/snY: axis locked exactly by a connect (skip grid + right-angle there)
   // butt an inner-wall end against the INNER FACE of the outer wall (centreline offset inward by half its thickness)
   for(let i=0;i<footprint.length;i++){const p=footprint[i],q=footprint[(i+1)%footprint.length];
@@ -471,7 +473,7 @@ function snapWallPoint(x,y,ref,alt,skipWall){
   return [nx,ny];}
 // where a new wall should begin for a right-click: on the nearest corner/wall if one is close, else the clicked point
 function wallStartPoint(px,py){
-  const conn=0.75,extH=walls.ext/24;
+  const conn=connRadius(),extH=walls.ext/24;
   let best=null,bd=conn;                                    // 1) exact corner / wall-junction vertex
   for(const w of iwalls)for(const p of w){const d=Math.hypot(px-p[0],py-p[1]);if(d<bd){bd=d;best=[p[0],p[1]];}}
   for(const p of footprint){const d=Math.hypot(px-p[0],py-p[1]);if(d<bd){bd=d;best=[p[0],p[1]];}}
