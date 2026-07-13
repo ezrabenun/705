@@ -191,11 +191,14 @@ function buildPiece(type,w,d,f,rise){const g=new THREE.Group();
     case"rug":{const r=new THREE.Mesh(new THREE.BoxGeometry(w,0.05,d),M(0xb1493f,{roughness:1}));r.position.y=0.03;r.receiveShadow=true;g.add(r);break;}
     case"stairs":{const going=(f&&f.going)||0.9,width=(f&&f.width)||w||3;
       let flights=f&&f.flights; if(!Array.isArray(flights)||!flights.length)flights=[Math.max(1,Math.round((d||10)/going))];
-      const turns=(f&&f.turns)||[],P=stairPath(flights,turns,going,width),wd=M(F.woodD,{roughness:.85}),R2=rise||CEIL,total=P.total||1;
-      P.runs.forEach(r=>{const px=r.dir[0],py=r.dir[1];
+      const turns=(f&&f.turns)||[],walls=(f&&f.walls)||[],P=stairPath(flights,turns,going,width),wd=M(F.woodD,{roughness:.85}),R2=rise||CEIL,total=P.total||1;
+      P.runs.forEach((r,ri)=>{const px=r.dir[0],py=r.dir[1],walled=walls[ri]!==false;   // walled = wall to floor below (solid); floating = thin treads
         for(let k=0;k<r.n;k++){const h=(r.s0+k+1)/total*R2,t=((k+0.5)/r.n-0.5)*r.len,cx=r.cx+px*t,cz=r.cy+py*t;
-          bx(g,Math.abs(px)*(r.len/r.n)+Math.abs(py)*r.w, h, Math.abs(py)*(r.len/r.n)+Math.abs(px)*r.w, wd, cx,0,cz);}});
-      P.lands.forEach(l=>bx(g,l.w,l.s/total*R2,l.w,wd,l.cx,0,l.cy));
+          const xe=Math.abs(px)*(r.len/r.n)+Math.abs(py)*r.w, ze=Math.abs(py)*(r.len/r.n)+Math.abs(px)*r.w;
+          if(walled) bx(g,xe,h,ze,wd,cx,0,cz);                       // solid down to the floor
+          else       bx(g,xe,0.45,ze,wd,cx,h-0.45,cz);}});           // floating tread only (open underneath)
+      P.lands.forEach((l,li)=>{const walled=walls[li]!==false; const h=l.s/total*R2;
+        if(walled) bx(g,l.w,h,l.w,wd,l.cx,0,l.cy); else bx(g,l.w,0.45,l.w,wd,l.cx,h-0.45,l.cy);});
       break;}
     default:bx(g,w,2,d,0x9aa0a8,0,0,0);
   }
