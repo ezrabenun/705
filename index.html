@@ -45,6 +45,7 @@
   #plan [data-iwadd]{pointer-events:all;cursor:copy;}
   #plan [data-iwmove]{pointer-events:all;}
   #plan [data-dim]{pointer-events:all;cursor:pointer;}
+  #plan [data-dimend]{pointer-events:all;cursor:move;}
   .dimlbl{font-family:var(--mono);font-size:10px;font-weight:700;paint-order:stroke;stroke:var(--paper);stroke-width:3px;stroke-linejoin:round;}
   svg#plan.arming{cursor:crosshair;}
   .btn.tool.armed{background:var(--red);border-color:var(--red);color:#fff;}
@@ -367,6 +368,7 @@ let editWalls=false;                          // when true, interior-wall corner
 let selectedWall=null;                        // index of the interior wall selected for arrow-key nudging
 let dims=[];                                  // manual dimension lines: {a:[x,y], b:[x,y]} in building coords
 let dimArmed=false, dimA=null;                // dimension tool: armed for first/second click
+let selectedDim=null;                         // index of the dimension selected for endpoint dragging
 let drawWall=null;                            // in-progress polyline while drawing a new wall (array of pts) or null
 // furniture: {type, cx, cy (centre, ft), w, d (footprint ft), rot (0/90/180/270)}
 let furniture=[];
@@ -985,12 +987,14 @@ function renderPlan(){
 function drawDims(){
   const tick=(x,y,px,py)=>svg.appendChild(el('line',{x1:x-px,y1:y-py,x2:x+px,y2:y+py,stroke:'var(--blue)','stroke-width':1}));
   dims.forEach((dm,i)=>{const ax=fx(dm.a[0]),ay=fyR(dm.a[1]),bx=fx(dm.b[0]),by=fyR(dm.b[1]);
-    const dist=Math.hypot(dm.a[0]-dm.b[0],dm.a[1]-dm.b[1]);
+    const dist=Math.hypot(dm.a[0]-dm.b[0],dm.a[1]-dm.b[1]),sel=i===selectedDim;
     let dx=bx-ax,dy=by-ay,L=Math.hypot(dx,dy)||1,px=-dy/L*5,py=dx/L*5;
-    svg.appendChild(el('line',{x1:ax,y1:ay,x2:bx,y2:by,stroke:'var(--blue)','stroke-width':1}));
+    svg.appendChild(el('line',{x1:ax,y1:ay,x2:bx,y2:by,stroke:'var(--blue)','stroke-width':sel?2:1}));
     tick(ax,ay,px,py);tick(bx,by,px,py);
     const t=txt((ax+bx)/2,(ay+by)/2-4,'dimlbl',ftIn(dist));t.setAttribute('fill','var(--blue)');svg.appendChild(t);
-    svg.appendChild(el('line',{x1:ax,y1:ay,x2:bx,y2:by,stroke:'transparent','stroke-width':12,'data-dim':i}));});
+    svg.appendChild(el('line',{x1:ax,y1:ay,x2:bx,y2:by,stroke:'transparent','stroke-width':12,'data-dim':i}));
+    if(sel){svg.appendChild(el('circle',{cx:ax,cy:ay,r:5,fill:'#fff',stroke:'var(--blue)','stroke-width':2,'data-dimend':i+',a'}));
+      svg.appendChild(el('circle',{cx:bx,cy:by,r:5,fill:'#fff',stroke:'var(--blue)','stroke-width':2,'data-dimend':i+',b'}));}});
   if(dimArmed&&dimA)svg.appendChild(el('circle',{cx:fx(dimA[0]),cy:fyR(dimA[1]),r:4,fill:'var(--blue)'}));
 }
 
@@ -1233,6 +1237,7 @@ svg.addEventListener('pointerdown',e=>{
       else if(drag.kind==='fpt')footprint[drag.idx]=drag.o;
       else if(drag.kind==='iwpt')iwalls[drag.wi][drag.pi]=drag.o;
       else if(drag.kind==='iwmove')iwalls[drag.wi]=drag.o;
+      else if(drag.kind==='dimend'){}
       else{const o=drag.o,r=rooms[drag.idx];r.x=o.x;r.y=o.y;r.w=o.w;r.h=o.h;}
       drag=null;renderPlan();
     }
@@ -1314,6 +1319,11 @@ svg.addEventListener('pointerdown',e=>{
       try{svg.setPointerCapture(e.pointerId);}catch(_){}e.preventDefault();return;}
   }
   const t=e.target;
+  const de=t.getAttribute('data-dimend');           // drag a selected dimension's endpoint
+  if(de!=null){const[di,end]=de.split(',');selectedDim=+di;drag={kind:'dimend',idx:+di,end};
+    try{svg.setPointerCapture(e.pointerId);}catch(_){}e.preventDefault();return;}
+  const dsel=t.getAttribute('data-dim');            // click a dimension line to select it
+  if(dsel!=null){selectedDim=+dsel;selected=null;selectedOpening=null;selectedFurn=null;renderPlan();e.preventDefault();return;}
   const fi=t.getAttribute('data-furn');
   if(fi!=null){                                     // furniture: rotate/resize handles, else select then move
     const idx=+fi;
@@ -1361,7 +1371,7 @@ svg.addEventListener('pointerdown',e=>{
       selected=idx;renderPlan();
     }
   }else{
-    if(selected!=null||selectedOpening!=null||selectedFurn!=null){selected=null;selectedOpening=null;selectedFurn=null;renderPlan();}  // tap empty → deselect
+    if(selected!=null||selectedOpening!=null||selectedFurn!=null||selectedDim!=null){selected=null;selectedOpening=null;selectedFurn=null;selectedDim=null;renderPlan();}  // tap empty → deselect
     if(view.scale>1){
       panP={id:e.pointerId,sx:e.clientX,sy:e.clientY,otx:view.tx,oty:view.ty};
     }
@@ -1401,6 +1411,9 @@ svg.addEventListener('pointermove',e=>{
       if(Math.abs(ny-pv[1])<=0.45)ny=pv[1];else if(Math.abs(ny-nv[1])<=0.45)ny=nv[1];
     }
     footprint[drag.idx]=[nx,ny];renderPlan();return;
+  }
+  if(drag.kind==='dimend'){                                          // drag a dimension endpoint (snaps to faces/lot)
+    dims[drag.idx][drag.end]=snapDimPoint(p.x,p.r);renderPlan();return;
   }
   if(drag.kind==='iwpt'){                                             // drag an interior-wall point
     const w=iwalls[drag.wi],ref=w[drag.pi-1]||w[drag.pi+1]||null;
@@ -1469,7 +1482,7 @@ function endPointer(e){
   clearTimeout(lpTimer);lpTimer=null;
   if(pointers.size<2)pinch=null;
   if(panP&&e.pointerId===panP.id)panP=null;
-  if(drag){const k=drag.kind;drag=null;renderList();if(k==='opening')renderOpenings();if(k==='furn')renderFurniture();if(k==='fpt')buildFramePanel();if(k==='iwpt'||k==='iwmove')buildWallsPanel();scheduleSave();}
+  if(drag){const k=drag.kind;drag=null;renderList();if(k==='opening')renderOpenings();if(k==='furn')renderFurniture();if(k==='fpt')buildFramePanel();if(k==='iwpt'||k==='iwmove')buildWallsPanel();if(k==='dimend')buildDimsPanel();scheduleSave();}
   if(pointers.size===0&&!gMoved&&Date.now()-gDownT<300){   // double-tap empty/room → reset zoom
     if(Date.now()-lastTapT<300&&Math.hypot(e.clientX-lastTapX,e.clientY-lastTapY)<30){resetView();lastTapT=0;}
     else{lastTapT=Date.now();lastTapX=e.clientX;lastTapY=e.clientY;}
@@ -1505,6 +1518,9 @@ document.addEventListener('keydown',e=>{
     if(selectedFurn!=null){furniture[selectedFurn].rot=((furniture[selectedFurn].rot||0)+90)%360;renderFurniture();renderPlan();scheduleSave();}
     return;
   }
+  if((e.key==='Delete'||e.key==='Backspace')&&selectedDim!=null&&!/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)){
+    dims.splice(selectedDim,1);selectedDim=null;buildDimsPanel();renderPlan();scheduleSave();e.preventDefault();return;
+  }
   if(e.key!=='Escape')return;
   if(dimArmed){dimArmed=false;dimA=null;buildDimsPanel();renderPlan();}
   else if(drawWall){drawWall=null;buildWallsPanel();renderPlan();}
@@ -1512,6 +1528,7 @@ document.addEventListener('keydown',e=>{
   else if(selectedFurn!=null){selectedFurn=null;renderPlan();}
   else if(selectedOpening!=null){selectedOpening=null;renderPlan();}
   else if(selected!=null){selected=null;renderPlan();}
+  else if(selectedDim!=null){selectedDim=null;renderPlan();}
 });
 
 /* ---------- room list ---------- */
@@ -1691,6 +1708,8 @@ function renderCtx(panel){
       `<button data-act="adddoor">＋ Door</button>`+
       `<button data-act="adddoorway">＋ Doorway</button><button data-act="addwindow">＋ Window</button>`+
       `<button data-act="furnpanel">＋ Furniture ▸</button>`+
+      `<button data-act="adddim">＋ Dimension from here</button>`+
+      (ctx.dim!=null?`<div class="hd">Dimension</div><button class="danger" data-act="dimdel2">✕ Delete dimension</button>`:'')+
       (ctx.iwall!=null?`<div class="hd">Interior wall</div>`+
         `<button data-act="wedit">✎ Edit wall</button>`+
         `<button class="danger" data-act="wdel">✕ Delete wall</button>`:'')+
@@ -1707,10 +1726,10 @@ function showCtx(x,y){ctxEl.hidden=false;const w=ctxEl.offsetWidth,hh=ctxEl.offs
 function hideCtx(){ctxEl.hidden=true;}
 function openCtxMenu(target,cx,cy){
   const g=a=>target&&target.getAttribute&&target.getAttribute(a),feet=feetFromEvent({clientX:cx,clientY:cy});
-  const fi=g('data-furn'),oi=g('data-open'),ri=g('data-room');
+  const fi=g('data-furn'),oi=g('data-open'),ri=g('data-room'),di=g('data-dim');
   if(fi!=null)ctx={kind:'furn',idx:+fi,feet};
   else if(oi!=null)ctx={kind:'open',idx:+oi,feet};
-  else{const iwi=nearestIWall(feet.x,feet.r,0.8);ctx={kind:'add',feet,room:(ri!=null?+ri:null),iwall:iwi>=0?iwi:null};}
+  else{const iwi=nearestIWall(feet.x,feet.r,0.8);ctx={kind:'add',feet,room:(ri!=null?+ri:null),iwall:iwi>=0?iwi:null,dim:(di!=null?+di:null)};}
   renderCtx('root');showCtx(cx,cy);
 }
 svg.addEventListener('contextmenu',e=>{e.preventDefault();openCtxMenu(e.target,e.clientX,e.clientY);});
@@ -1726,6 +1745,8 @@ ctxEl.addEventListener('click',e=>{
       else{nr.x=snap(feet.x-6);nr.y=snap(feet.r-5);nr.w=12;nr.h=10;nr.desired=120;}
       rooms.push(nr);selected=rooms.length-1;selectedOpening=null;selectedFurn=null;renderList();renderPlan();scheduleSave();break;}
     case'wallstart':drawWall=[wallStartPoint(feet.x,feet.r)];editWalls=false;editOutline=false;buildWallsPanel();renderPlan();break;
+    case'adddim':dimArmed=true;dimA=snapDimPoint(feet.x,feet.r);buildDimsPanel();renderPlan();break;
+    case'dimdel2':if(ctx.dim!=null){dims.splice(ctx.dim,1);selectedDim=null;buildDimsPanel();renderPlan();scheduleSave();}break;
     case'wedit':if(ctx.iwall!=null){editWalls=true;editOutline=false;drawWall=null;buildWallsPanel();renderPlan();}break;
     case'wdel':if(ctx.iwall!=null){iwalls.splice(ctx.iwall,1);renderPlan();buildWallsPanel();scheduleSave();}break;
     case'rsnap':if(ctx.room!=null&&snapRoomToWalls(rooms[ctx.room])){renderList();renderPlan();scheduleSave();}break;
