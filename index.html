@@ -411,10 +411,16 @@ function netDims(r){const L=wallThickOnSide('v',r.x,r.y,r.y+r.h),R=wallThickOnSi
   F=wallThickOnSide('h',r.y,r.x,r.x+r.w),B=wallThickOnSide('h',r.y+r.h,r.x,r.x+r.w);
   return {nw:Math.max(0,r.w-L/24-R/24),nh:Math.max(0,r.h-F/24-B/24),w:{L:!!L,R:!!R,F:!!F,B:!!B}};}
 function roomArea(r){if(r.poly)return innerPolyArea(r.poly);if(r.open)return r.w*r.h;const n=netDims(r);return n.nw*n.nh;}
-// tidy a set of walls: merge collinear/overlapping runs into single walls (removes doubles),
-// then extend each end to meet a perpendicular wall or the outline when it's just short (closes gaps)
+// tidy a set of walls: straighten accidentally-slanted near-axis walls, merge collinear/overlapping runs
+// into single walls (removes doubles), then extend each end to meet a perpendicular wall or the outline when short
 function cleanWalls(src){
-  const q=v=>Math.round(v*100)/100, gap=0.1, ext=0.75;
+  const q=v=>Math.round(v*100)/100, gap=0.1, ext=0.75, STOL=0.5;
+  const med=a=>{const s=[...a].sort((x,y)=>x-y);return s[(s.length-1)>>1];};
+  src=src.map(w=>{if(w.length<2)return w;                         // a wall whose points barely vary on one axis is meant to be straight
+    const xs=w.map(p=>p[0]),ys=w.map(p=>p[1]),xr=Math.max(...xs)-Math.min(...xs),yr=Math.max(...ys)-Math.min(...ys);
+    if(xr<=STOL&&xr<yr)return w.map(p=>[med(xs),p[1]]);           // near-vertical → snap all x to the common value
+    if(yr<=STOL&&yr<xr)return w.map(p=>[p[0],med(ys)]);           // near-horizontal → snap all y
+    return w;});
   const gv=new Map(),gh=new Map(),diag=[];
   for(const w of src)for(let i=0;i+1<w.length;i++){const a=w[i],b=w[i+1];
     if(Math.abs(a[0]-b[0])<1e-6){const k=q(a[0]);if(!gv.has(k))gv.set(k,[]);gv.get(k).push([Math.min(a[1],b[1]),Math.max(a[1],b[1])]);}
