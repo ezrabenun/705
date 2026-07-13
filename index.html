@@ -106,7 +106,8 @@
     background:#fff;padding:4px 5px;color:var(--ink);}
   table.rooms input.nm{width:130px;text-align:left;}
   table.rooms input.num{width:54px;text-align:right;}
-  .sw{display:inline-block;width:11px;height:11px;border-radius:2px;vertical-align:middle;margin-right:7px;}
+  .sw{display:inline-block;width:15px;height:15px;border-radius:3px;vertical-align:middle;margin-right:7px;padding:0;border:1px solid #C2C8CD;cursor:pointer;background:none;}
+  .sw::-webkit-color-swatch-wrapper{padding:0;} .sw::-webkit-color-swatch{border:none;border-radius:2px;} .sw::-moz-color-swatch{border:none;border-radius:2px;}
   .badge{font-family:var(--mono);font-size:12px;font-weight:700;}
   .del{border:none;background:none;color:var(--ink-soft);cursor:pointer;font-size:15px;line-height:1;padding:2px 4px;}
   .del:hover{color:var(--red);}
@@ -1440,7 +1441,7 @@ function renderList(){
     updateSummary();return;}
   list.innerHTML=rooms.map((r,i)=>{
     return `<tr>
-      <td class="l"><span class="sw" style="background:${r.color}"></span>
+      <td class="l"><input class="sw" type="color" data-ri="${i}" data-rk="color" value="${r.color}" title="Room colour">
         <input class="nm" data-ri="${i}" data-rk="name" value="${r.name.replace(/"/g,'&quot;')}"></td>
       <td><input class="num" data-ri="${i}" data-rk="desired" type="number" min="1" step="1" value="${fmt(r.desired)}"></td>
       <td><input class="num" data-ri="${i}" data-rk="w" type="number" min="1" step="0.5" value="${fmt(r.w)}"></td>
@@ -1476,6 +1477,7 @@ list.addEventListener('input',e=>{
   const i=e.target.dataset.ri,k=e.target.dataset.rk;if(i==null)return;
   if(k==='name'){rooms[i].name=e.target.value;}
   else if(k==='open'){rooms[i].open=e.target.checked;}
+  else if(k==='color'){rooms[i].color=e.target.value;}
   else{const v=parseFloat(e.target.value);if(!isNaN(v))rooms[i][k]=Math.max(1,v);}
   renderPlan();updateComputed();scheduleSave();
 });
