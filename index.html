@@ -577,8 +577,9 @@ function enclosedPolygon(cx,cy,bounds,exceptRoom){
   const X=[...xs].sort((a,b)=>a-b).filter(v=>v>=bx0-eps&&v<=bx1+eps),Y=[...ys].sort((a,b)=>a-b).filter(v=>v>=by0-eps&&v<=by1+eps),nc=X.length-1,nr=Y.length-1;
   if(nc<1||nr<1)return null;
   const inCell=(i,j)=>{const mx=(X[i]+X[i+1])/2,my=(Y[j]+Y[j+1])/2;return inFoot(mx,my)&&mx>=bx0-eps&&mx<=bx1+eps&&my>=by0-eps&&my<=by1+eps&&!occupiedByOtherRoom(mx,my,exceptRoom);};
-  const vWall=(x,a,b)=>S.some(s=>s.v&&Math.abs(s.x-x)<1e-3&&s.a<=a+eps&&s.b>=b-eps);
-  const hWall=(y,a,b)=>S.some(s=>!s.v&&Math.abs(s.y-y)<1e-3&&s.a<=a+eps&&s.b>=b-eps);
+  const gbr=0.35;   // bridge sub-threshold gaps where a wall doesn't quite meet the outline/another wall, so the fill can't leak through them
+  const vWall=(x,a,b)=>S.some(s=>s.v&&Math.abs(s.x-x)<1e-3&&s.a<=a+gbr&&s.b>=b-gbr);
+  const hWall=(y,a,b)=>S.some(s=>!s.v&&Math.abs(s.y-y)<1e-3&&s.a<=a+gbr&&s.b>=b-gbr);
   let ci=-1,cj=-1;for(let i=0;i<nc;i++)if(cx>=X[i]-eps&&cx<=X[i+1]+eps){ci=i;break;}
   for(let j=0;j<nr;j++)if(cy>=Y[j]-eps&&cy<=Y[j+1]+eps){cj=j;break;}
   if(ci<0||cj<0||!inCell(ci,cj))return null;
