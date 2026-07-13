@@ -583,7 +583,8 @@ function occupiedByOtherRoom(x,y,except){
 // `bounds` clips the fill to a local box; the fill also stops at walls, the outline, AND other closed rooms
 // (exceptRoom = index of the room being re-fitted, so it doesn't block itself) — so rooms never overlap.
 function enclosedPolygon(cx,cy,bounds,exceptRoom){
-  if(!inFoot(cx,cy)||occupiedByOtherRoom(cx,cy,exceptRoom==null?-1:exceptRoom))return null;
+  if(occupiedByOtherRoom(cx,cy,exceptRoom==null?-1:exceptRoom))return null;
+  const indoor=inFoot(cx,cy);   // outdoor rooms fill the region OUTSIDE the footprint, bounded by walls/fences and the lot
   if(exceptRoom==null)exceptRoom=-1;
   const S=wallSegs(),g=geom(),eps=1e-4;
   const bx0=bounds?bounds.x:g.minX,bx1=bounds?bounds.x+bounds.w:g.maxX,by0=bounds?bounds.y:g.minY,by1=bounds?bounds.y+bounds.h:g.maxY;
@@ -591,9 +592,12 @@ function enclosedPolygon(cx,cy,bounds,exceptRoom){
   for(const s of S){if(s.v){xs.add(s.x);ys.add(s.a);ys.add(s.b);}else{ys.add(s.y);xs.add(s.a);xs.add(s.b);}}
   for(let ri=0;ri<rooms.length;ri++){if(ri===exceptRoom)continue;const r=rooms[ri];if(r.open)continue;   // align cells to room edges so rooms block cleanly
     if(r.poly){for(const p of r.poly){xs.add(p[0]);ys.add(p[1]);}}else{xs.add(r.x);xs.add(r.x+r.w);ys.add(r.y);ys.add(r.y+r.h);}}
+  if(!indoor&&cur){xs.add(-cur.offX);xs.add(cur.pw-cur.offX);ys.add(-cur.offF);ys.add(cur.pd-cur.offF);}   // lot edges bound an outdoor fill
   const X=[...xs].sort((a,b)=>a-b).filter(v=>v>=bx0-eps&&v<=bx1+eps),Y=[...ys].sort((a,b)=>a-b).filter(v=>v>=by0-eps&&v<=by1+eps),nc=X.length-1,nr=Y.length-1;
   if(nc<1||nr<1)return null;
-  const inCell=(i,j)=>{const mx=(X[i]+X[i+1])/2,my=(Y[j]+Y[j+1])/2;return inFoot(mx,my)&&mx>=bx0-eps&&mx<=bx1+eps&&my>=by0-eps&&my<=by1+eps&&!occupiedByOtherRoom(mx,my,exceptRoom);};
+  const inLot=(x,y)=>!cur||(x>=-cur.offX-0.05&&x<=cur.pw-cur.offX+0.05&&y>=-cur.offF-0.05&&y<=cur.pd-cur.offF+0.05);
+  const inCell=(i,j)=>{const mx=(X[i]+X[i+1])/2,my=(Y[j]+Y[j+1])/2;const inb=mx>=bx0-eps&&mx<=bx1+eps&&my>=by0-eps&&my<=by1+eps;
+    return (indoor?inFoot(mx,my):(!inFoot(mx,my)&&inLot(mx,my)))&&inb&&!occupiedByOtherRoom(mx,my,exceptRoom);};
   const gbr=0.35;   // bridge sub-threshold gaps where a wall doesn't quite meet the outline/another wall, so the fill can't leak through them
   const vWall=(x,a,b)=>S.some(s=>s.v&&Math.abs(s.x-x)<1e-3&&s.a<=a+gbr&&s.b>=b-gbr);
   const hWall=(y,a,b)=>S.some(s=>!s.v&&Math.abs(s.y-y)<1e-3&&s.a<=a+gbr&&s.b>=b-gbr);
@@ -635,7 +639,7 @@ function fittedBounds(r,maxS){maxS=maxS||3;const S=wallSegs(),cx=r.x+r.w/2,cy=r.
 // Bounding to the fitted box means it follows walls/notches but never leaks out through an open side.
 function snapRoomToWalls(r){
   const bounds=fittedBounds(r);
-  const c=[bounds.x+bounds.w/2, bounds.y+bounds.h/2];
+  const c=r.poly?labelPoint(r.poly):[r.x+r.w/2, r.y+r.h/2];   // seed from the room's own centre (indoor vs outdoor)
   const poly=enclosedPolygon(c[0],c[1],bounds,rooms.indexOf(r));
   if(poly){const bb=polyBBox(poly);r.poly=poly;r.x=bb.x;r.y=bb.y;r.w=bb.w;r.h=bb.h;return true;}
   delete r.poly;r.x=bounds.x;r.y=bounds.y;r.w=bounds.w;r.h=bounds.h;return true;}
