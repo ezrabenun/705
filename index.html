@@ -1820,7 +1820,7 @@ ctxEl.addEventListener('click',e=>{
   hideCtx();
 });
 document.addEventListener('pointerdown',e=>{if(!e.target.closest('#ctxmenu'))hideCtx();},true);
-window.addEventListener('scroll',hideCtx,true);
+window.addEventListener('scroll',e=>{const t=e.target;if(t&&t.closest&&t.closest('#ctxmenu'))return;hideCtx();},true);   // page scroll closes the menu, but scrolling inside it must not
 document.addEventListener('keydown',e=>{if(e.key==='Escape')hideCtx();});
 
 /* ---------- export / import / save ---------- */
