@@ -233,13 +233,13 @@ function build(L){
   CX=(minX+maxX)/2; CZ=(minZ+maxZ)/2;
   const span=Math.max(maxX-minX,maxZ-minZ,20); home.r=span*1.5+18;
 
-  // ground + grid
+  // ground + grid — sit at grade, i.e. `gradeH` below the first floor, so the first floor reads as raised above grade
+  const gradeH=(L.plot&&+L.plot.grade)||0;
   const ground=new THREE.Mesh(new THREE.PlaneGeometry(1200,1200),M(0xdfe2e6,{roughness:1}));
-  ground.rotation.x=-Math.PI/2; ground.position.y=-0.06; ground.receiveShadow=true; world.add(ground);
-  const grid=new THREE.GridHelper(1200,240,0xcfd3d9,0xd8dbe0); grid.position.y=-0.05; world.add(grid);
+  ground.rotation.x=-Math.PI/2; ground.position.y=-gradeH-0.06; ground.receiveShadow=true; world.add(ground);
+  const grid=new THREE.GridHelper(1200,240,0xcfd3d9,0xd8dbe0); grid.position.y=-gradeH-0.05; world.add(grid);
 
   // floor slabs — every room (open rooms sit flat as patios/landscape); at-grade rooms drop by the first-floor grade height
-  const gradeH=(L.plot&&+L.plot.grade)||0;
   function ptInPoly(x,z,poly){let ins=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const xi=poly[i][0],zi=poly[i][1],xj=poly[j][0],zj=poly[j][1];if(((zi>z)!==(zj>z))&&(x<(xj-xi)*(z-zi)/(zj-zi)+xi))ins=!ins;}return ins;}
   rooms.forEach(r=>{const col=r.color||'#c8ccd2';
     const h=r.open?0.08:SLAB+0.02, drop=(!r.open&&r.grade)?gradeH:0, y=r.open?(-gradeH-0.02):-drop;   // outdoor/landscape sits at grade; the first floor is raised above it
