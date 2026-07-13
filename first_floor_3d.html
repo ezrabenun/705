@@ -242,7 +242,7 @@ function build(L){
   const gradeH=(L.plot&&+L.plot.grade)||0;
   function ptInPoly(x,z,poly){let ins=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const xi=poly[i][0],zi=poly[i][1],xj=poly[j][0],zj=poly[j][1];if(((zi>z)!==(zj>z))&&(x<(xj-xi)*(z-zi)/(zj-zi)+xi))ins=!ins;}return ins;}
   rooms.forEach(r=>{const col=r.color||'#c8ccd2';
-    const h=r.open?0.08:SLAB+0.02, drop=(!r.open&&r.grade)?gradeH:0, y=(r.open?-0.02:0)-drop;
+    const h=r.open?0.08:SLAB+0.02, drop=(!r.open&&r.grade)?gradeH:0, y=r.open?(-gradeH-0.02):-drop;   // outdoor/landscape sits at grade; the first floor is raised above it
     if(Array.isArray(r.poly)&&r.poly.length>=3){          // shaped room → extrude its polygon as the floor slab
       const shape=new THREE.Shape();
       r.poly.forEach((p,i)=>{const sx=p[0]-CX,sy=p[1]-CZ;i===0?shape.moveTo(sx,sy):shape.lineTo(sx,sy);});
@@ -256,6 +256,11 @@ function build(L){
       world.add(box(horiz?len:0.4,gradeH,horiz?0.4:len,skirt,(a[0]+b[0])/2-CX,-gradeH,CZ-(a[1]+b[1])/2));};
     if(Array.isArray(r.poly)&&r.poly.length>=3){for(let i=0;i<r.poly.length;i++)seg(r.poly[i],r.poly[(i+1)%r.poly.length]);}
     else{const x0=r.x,y0=r.y,x1=r.x+r.w,y1=r.y+r.h;seg([x0,y0],[x1,y0]);seg([x1,y0],[x1,y1]);seg([x1,y1],[x0,y1]);seg([x0,y1],[x0,y0]);}});
+  // foundation around the building footprint, from grade up to the first floor, so the raised first floor reads correctly
+  if(gradeH>0&&footprint){const fnd=M(F.stone,{roughness:.95});
+    for(let i=0;i<footprint.length;i++){const a=footprint[i],b=footprint[(i+1)%footprint.length],len=Math.hypot(b[0]-a[0],b[1]-a[1]);if(len<0.2)continue;
+      const horiz=Math.abs(b[1]-a[1])<=Math.abs(b[0]-a[0]);
+      world.add(box(horiz?len:T_EXT,gradeH,horiz?T_EXT:len,fnd,(a[0]+b[0])/2-CX,-gradeH,CZ-(a[1]+b[1])/2));}}
 
   // ---- walls (from walled-room edges, deduped, with door gaps) ----
   // "outside" = beyond the building footprint. Falls back to the room test if there are no wings.
@@ -300,9 +305,17 @@ function build(L){
   }
   const iwalls=Array.isArray(L.iwalls)?L.iwalls:[];
   const iwallsHide3d=Array.isArray(L.iwallsHide3d)?L.iwallsHide3d:[];   // walls flagged 2D-only in the editor are omitted here
+  const iwallsFence=Array.isArray(L.iwallsFence)?L.iwallsFence:[];      // walls flagged as fences render as posts + rails
+  // build a fence along a segment: posts every ~6 ft + two rails, ~4.5 ft tall
+  function buildFence(x1,z1,x2,z2){const len=Math.hypot(x2-x1,z2-z1);if(len<0.25)return;const FH=4.5,pw=M(F.woodD,{roughness:.9}),rw=M(F.wood,{roughness:.9});
+    const n=Math.max(1,Math.round(len/6)),horiz=Math.abs(z2-z1)<Math.abs(x2-x1);
+    for(let k=0;k<=n;k++){const t=k/n;world.add(box(0.3,FH,0.3,pw,x1+(x2-x1)*t-CX,0,CZ-(z1+(z2-z1)*t)));}
+    [1.6,3.4].forEach(ry=>world.add(box(horiz?len:0.12,0.25,horiz?0.12:len,rw,(x1+x2)/2-CX,ry,CZ-(z1+z2)/2)));}
   if(footprint){                                          // new model: outline = exterior, iwalls = interior
     for(let i=0;i<footprint.length;i++){const p=footprint[i],q=footprint[(i+1)%footprint.length];buildWallAlong(p[0],p[1],q[0],q[1],true);}
-    iwalls.forEach((w,wi)=>{if(iwallsHide3d[wi])return;for(let i=0;i+1<w.length;i++)buildWallAlong(w[i][0],w[i][1],w[i+1][0],w[i+1][1],false);});
+    iwalls.forEach((w,wi)=>{if(iwallsHide3d[wi])return;
+      if(iwallsFence[wi]){for(let i=0;i+1<w.length;i++)buildFence(w[i][0],w[i][1],w[i+1][0],w[i+1][1]);return;}
+      for(let i=0;i+1<w.length;i++)buildWallAlong(w[i][0],w[i][1],w[i+1][0],w[i+1][1],false);});
   } else {                                                // legacy saves (wings/rooms only): derive walls from room edges
     const drawn=new Set();
     closed.forEach(r=>{const a=r.x,b=r.y,c=r.x+r.w,d=r.y+r.h;
