@@ -191,7 +191,7 @@
     <table class="rooms">
       <thead><tr>
         <th class="l">Room</th><th>Desired</th><th>W</th><th>D</th>
-        <th>Net</th><th>Δ vs desired</th><th>Open</th><th></th>
+        <th>Net</th><th>Δ vs desired</th><th title="Floor sits at grade (below the first floor)">Grade</th><th>Open</th><th></th>
       </tr></thead>
       <tbody id="roomlist"></tbody>
     </table>
@@ -250,6 +250,10 @@
       <div class="card"><h3>Ceiling height</h3>
         <div class="fld"><label>Clear height (ft)</label><input type="number" id="p-ceil" min="4" step="0.5"></div>
         <div class="hint" style="margin:0">Floor-to-floor = ceiling + 1 ft floor. Sets how many stair steps reach the next floor.</div>
+      </div>
+      <div class="card"><h3>First floor above grade</h3>
+        <div class="fld"><label>Height (ft)</label><input type="number" id="p-grade" min="0" step="0.5"></div>
+        <div class="hint" style="margin:0">How high the first floor sits above grade. Rooms marked <b>Grade</b> drop by this much.</div>
       </div>
     </div>
   </div>
@@ -360,7 +364,7 @@ let rooms=[
   {name:"Closet", desired:10, x:-15, y:25, w:5.5, h:2, color:"#2C5C8A"},
   {name:"Stairs", desired:288, x:48.5, y:22, w:5, h:12, color:"#7A4E8C", open:true},
 ];
-let plot={pw:100,pd:150,offF:30.25,offR:10,ceilH:9};   // lot W×D; frame front/right setbacks; ceilH = clear ceiling height (ft)
+let plot={pw:100,pd:150,offF:30.25,offR:10,ceilH:9,grade:2};   // lot; setbacks; ceilH = clear ceiling height; grade = first-floor height above grade (ft)
 let walls={ext:7,int:4.75};                  // wall thickness in INCHES
 // openings sit on top of the walls. type: 'door' (leaf + swing arc) | 'doorway' (plain gap) | 'window' (glazing).
 // x,y = one end (ft); orient 'h' spans +x, 'v' spans +y; len in ft; flip mirrors a door's swing side.
@@ -789,6 +793,7 @@ function buildPlotPanel(){
   document.getElementById('p-offF').value=fmt(plot.offF);
   document.getElementById('p-offR').value=fmt(plot.offR);
   document.getElementById('p-ceil').value=fmt(plot.ceilH);
+  document.getElementById('p-grade').value=fmt(plot.grade);
 }
 [['p-pw','pw'],['p-pd','pd'],['p-offF','offF'],['p-offR','offR']].forEach(([id,key])=>{
   document.getElementById(id).addEventListener('input',e=>{
@@ -797,6 +802,7 @@ function buildPlotPanel(){
   });
 });
 document.getElementById('p-ceil').addEventListener('input',e=>{plot.ceilH=Math.max(4,parseFloat(e.target.value)||9);renderFurniture();renderPlan();scheduleSave();});
+document.getElementById('p-grade').addEventListener('input',e=>{plot.grade=Math.max(0,parseFloat(e.target.value)||0);renderList();renderPlan();scheduleSave();});
 buildPlotPanel();
 
 /* ---------- walls editor ---------- */
@@ -967,6 +973,7 @@ function renderPlan(){
     const wide=oneLine.length*6.6+4<=pxW;
     if(wide)essential.push({c:'rmdim',t:oneLine});
     else{essential.push({c:'rmdim',t:dimW+"×"});essential.push({c:'rmdim',t:dimD});}
+    if(r.grade)optional.push({c:'rmdelta',t:'▼ at grade',fill:'var(--blue)'});
     if(di.show)optional.push({c:'rmdelta',t:di.t,fill:di.c});
     if(wide)optional.push({c:'rmsf',t:fmt(Math.round(a*10)/10)+" sf"});
     const show=essential.slice();
@@ -1213,7 +1220,8 @@ function getStair(f){const going=f.going||0.9, width=f.width||f.w||3; let flight
   if(!Array.isArray(flights)||!flights.length){flights=[Math.max(1,Math.round((f.d||10)/going))];turns=[];}
   flights=flights.map(n=>Math.max(1,n|0));
   walls=flights.map((_,i)=>Array.isArray(walls)&&walls[i]!=null?!!walls[i]:true);   // per-flight: true = wall to floor below, false = floating
-  return {going,width,flights,turns,walls};}
+  const rise=f.rise>0?+f.rise:floorRise();   // total climb (ft); defaults floor-to-floor, set lower for grade→first-floor steps
+  return {going,width,flights,turns,walls,rise};}
 // walk the flights (each a run of `n` steps) with a landing + L/R turn between them; returns centred local-feet geometry
 function stairPath(flights,turns,going,width){
   let dir=[0,1],pos=[0,0],si=0; const runs=[],lands=[],rot=(v,t)=>t==='R'?[v[1],-v[0]]:[-v[1],v[0]];
@@ -1647,7 +1655,7 @@ document.addEventListener('keydown',e=>{
 /* ---------- room list ---------- */
 const list=document.getElementById('roomlist');
 function renderList(){
-  if(!rooms.length){list.innerHTML='<tr><td colspan="8" class="empty">No rooms yet — add one above to drop it into the plan.</td></tr>';
+  if(!rooms.length){list.innerHTML='<tr><td colspan="9" class="empty">No rooms yet — add one above to drop it into the plan.</td></tr>';
     updateSummary();return;}
   list.innerHTML=rooms.map((r,i)=>{
     return `<tr>
@@ -1658,6 +1666,7 @@ function renderList(){
       <td><input class="num" data-ri="${i}" data-rk="h" type="number" min="1" step="0.5" value="${fmt(r.h)}"></td>
       <td><span data-rc="area" data-ri="${i}"></span> sf</td>
       <td><span class="badge" data-rc="delta" data-ri="${i}"></span></td>
+      <td style="text-align:center"><input type="checkbox" data-ri="${i}" data-rk="grade" ${r.grade?'checked':''} title="Sits at grade (drops by the first-floor height above grade)"></td>
       <td style="text-align:center"><input type="checkbox" data-ri="${i}" data-rk="open" ${r.open?'checked':''} title="No walls (deck/patio)"></td>
       <td><button class="del" data-del="${i}" title="Delete">✕</button></td>
     </tr>`;}).join('');
@@ -1687,6 +1696,7 @@ list.addEventListener('input',e=>{
   const i=e.target.dataset.ri,k=e.target.dataset.rk;if(i==null)return;
   if(k==='name'){rooms[i].name=e.target.value;}
   else if(k==='open'){rooms[i].open=e.target.checked;}
+  else if(k==='grade'){rooms[i].grade=e.target.checked;}
   else if(k==='color'){rooms[i].color=e.target.value;}
   else{const v=parseFloat(e.target.value);if(!isNaN(v))rooms[i][k]=Math.max(1,v);}
   renderPlan();updateComputed();scheduleSave();
@@ -1804,7 +1814,7 @@ function ensureStair(f){const st=getStair(f);if(!Array.isArray(f.flights))f.flig
 function buildStairEditor(){
   const f=(selectedFurn!=null&&furniture[selectedFurn]&&furniture[selectedFurn].type==='stairs')?furniture[selectedFurn]:null;
   if(!f){stairEd.style.display='none';stairEd.innerHTML='';return;}
-  const st=getStair(f),placed=st.flights.reduce((a,b)=>a+b,0),need=stepsNeeded(),diff=placed-need;
+  const st=getStair(f),placed=st.flights.reduce((a,b)=>a+b,0),need=Math.round(st.rise*12/7),diff=placed-need;
   const flights=st.flights.map((n,i)=>
     (i>0?`<button class="del" data-stturn="${i-1}" title="Turn direction">${st.turns[i-1]==='R'?'↱R':'↰L'}</button>`:'')+
     `<span style="display:inline-flex;flex-direction:column;align-items:center;gap:1px">`+
@@ -1814,15 +1824,19 @@ function buildStairEditor(){
   ).join('<span style="color:var(--ink-soft)">→</span>');
   stairEd.style.display='block';
   stairEd.innerHTML=`<div class="card"><h3>Stairs</h3>
-    <div class="hint" style="margin:0 0 6px">Floor-to-floor <b>${fmt(floorRise())} ft</b> · Steps needed <b>${need}</b> (7&Prime; riser) — split them across the flights.</div>
+    <div class="hint" style="margin:0 0 6px">Rise <b>${fmt(st.rise)} ft</b> · Steps needed <b>${need}</b> (7&Prime; riser) — split them across the flights.</div>
     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><label style="font-size:12px">Width</label><input class="num" id="st-width" type="number" min="0.5" step="0.5" value="${fmt(st.width)}" style="width:56px"> ft
-      <label style="font-size:12px;margin-left:8px">Tread</label><input class="num" id="st-going" type="number" min="4" step="0.5" value="${fmt(st.going*12)}" style="width:56px"> in</div>
-    <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:8px"><label style="font-size:12px">Flights</label>${flights}<button class="del" id="st-add" title="Add a flight (left turn)">＋</button></div>
+      <label style="font-size:12px;margin-left:8px">Tread</label><input class="num" id="st-going" type="number" min="4" step="0.5" value="${fmt(st.going*12)}" style="width:56px"> in
+      <label style="font-size:12px;margin-left:8px">Rise</label><input class="num" id="st-rise" type="number" min="0.5" step="0.5" value="${fmt(st.rise)}" style="width:56px"> ft`+
+      (plot.grade>0?` <button class="del" id="st-grade" title="Set rise to the first-floor height above grade">= grade (${fmt(plot.grade)})</button>`:'')+
+      ` <button class="del" id="st-ff" title="Set rise to floor-to-floor">= floor</button></div>`+
+    `<div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:8px"><label style="font-size:12px">Flights</label>${flights}<button class="del" id="st-add" title="Add a flight (left turn)">＋</button></div>
     <div class="hint" style="margin:6px 0 0;font-weight:700;color:${diff===0?'var(--green,#2F7D54)':'var(--red)'}">Placed ${placed} / ${need}${diff===0?' ✓':(diff>0?` — ${diff} too many`:` — ${-diff} short`)}</div></div>`;
 }
 stairEd.addEventListener('input',e=>{const f=furniture[selectedFurn];if(!f)return;ensureStair(f);
   if(e.target.id==='st-width')f.width=Math.max(0.5,parseFloat(e.target.value)||3);
   else if(e.target.id==='st-going')f.going=Math.max(0.33,(parseFloat(e.target.value)||10.8)/12);
+  else if(e.target.id==='st-rise')f.rise=Math.max(0.5,parseFloat(e.target.value)||floorRise());
   else if(e.target.dataset.stf!=null)f.flights[+e.target.dataset.stf]=Math.max(1,parseInt(e.target.value)||1);
   else return;
   renderPlan();scheduleSave();});   // note: no editor rebuild here, so the field keeps focus while typing
@@ -1831,6 +1845,8 @@ stairEd.addEventListener('click',e=>{const f=furniture[selectedFurn];if(!f)retur
   else if(t.dataset.stdel!=null){if(f.flights.length>1){const i=+t.dataset.stdel;f.flights.splice(i,1);f.turns.splice(Math.min(i,f.turns.length-1),1);f.walls.splice(i,1);}}
   else if(t.dataset.stturn!=null){const i=+t.dataset.stturn;f.turns[i]=f.turns[i]==='R'?'L':'R';}
   else if(t.dataset.stwall!=null){f.walls[+t.dataset.stwall]=t.checked;}
+  else if(t.id==='st-grade'){f.rise=Math.max(0.5,plot.grade);}
+  else if(t.id==='st-ff'){f.rise=floorRise();}
   else return;
   renderFurniture();renderPlan();scheduleSave();});
 function need0(f){const s=(f.flights||[]).reduce((a,b)=>a+b,0);return Math.max(1,stepsNeeded()-s)||4;}
@@ -1967,7 +1983,7 @@ function ioStatus(msg,err){const s=document.getElementById('iostatus');s.textCon
 
 function applyData(d){
   if(d.plot&&typeof d.plot==='object')
-    plot={pw:Math.max(1,+d.plot.pw||100),pd:Math.max(1,+d.plot.pd||150),offF:Math.max(0,+d.plot.offF||0),offR:Math.max(0,+d.plot.offR||0),ceilH:Math.max(4,+d.plot.ceilH||9)};
+    plot={pw:Math.max(1,+d.plot.pw||100),pd:Math.max(1,+d.plot.pd||150),offF:Math.max(0,+d.plot.offF||0),offR:Math.max(0,+d.plot.offR||0),ceilH:Math.max(4,+d.plot.ceilH||9),grade:Math.max(0,+d.plot.grade||0)};
   if(d.walls&&typeof d.walls==='object')
     walls={ext:Math.max(0,+d.walls.ext||0),int:Math.max(0,+d.walls.int||0)};
   if(Array.isArray(d.footprint)&&d.footprint.length>=3)
@@ -1977,7 +1993,7 @@ function applyData(d){
   if(Array.isArray(d.rooms))
     rooms=d.rooms.map((r,i)=>{const rm={name:r.name!=null?String(r.name):"Room "+(i+1),
       desired:Math.max(1,+r.desired||1),x:+r.x||0,y:+r.y||0,
-      w:Math.max(1,+r.w||1),h:Math.max(1,+r.h||1),color:r.color||RC[i%RC.length],open:!!r.open};
+      w:Math.max(1,+r.w||1),h:Math.max(1,+r.h||1),color:r.color||RC[i%RC.length],open:!!r.open,grade:!!r.grade};
       if(Array.isArray(r.poly)&&r.poly.length>=3)rm.poly=r.poly.map(p=>[+p[0]||0,+p[1]||0]);
       return rm;});
   // interior walls: use saved ones, else seed from the room layout (old saves had none)
@@ -1995,7 +2011,8 @@ function applyData(d){
     if(o.type==='stairs'){o.width=Math.max(0.5,+f.width||+f.w||3);o.going=Math.max(0.3,+f.going||0.9);
       if(Array.isArray(f.flights)&&f.flights.length)o.flights=f.flights.map(n=>Math.max(1,n|0));
       if(Array.isArray(f.turns))o.turns=f.turns.map(t=>t==='R'?'R':'L');
-      if(Array.isArray(f.walls))o.walls=f.walls.map(w=>!!w);}
+      if(Array.isArray(f.walls))o.walls=f.walls.map(w=>!!w);
+      if(+f.rise>0)o.rise=+f.rise;}
     return o;}):[];
   dims=Array.isArray(d.dims)?d.dims.filter(m=>m&&Array.isArray(m.a)&&Array.isArray(m.b)).map(m=>({a:[+m.a[0]||0,+m.a[1]||0],b:[+m.b[0]||0,+m.b[1]||0]})):[];
   selected=null;selectedOpening=null;selectedFurn=null;dimArmed=false;dimA=null;
@@ -2086,14 +2103,14 @@ async function resetToDefault(){
 
 function exportJSON(){
   const data={schema:"first-floor-plan",version:1,exported:new Date().toISOString(),
-    plot:{pw:plot.pw,pd:plot.pd,offF:plot.offF,offR:plot.offR,ceilH:plot.ceilH},
+    plot:{pw:plot.pw,pd:plot.pd,offF:plot.offF,offR:plot.offR,ceilH:plot.ceilH,grade:plot.grade},
     walls:{ext:walls.ext,int:walls.int},
     footprint:footprint.map(p=>[p[0],p[1]]),
     iwalls:iwalls.map(w=>w.map(p=>[p[0],p[1]])),
     iwallsHide3d:iwalls.map(w=>!!w.hide3d),
-    rooms:rooms.map(r=>{const o={name:r.name,desired:r.desired,x:r.x,y:r.y,w:r.w,h:r.h,color:r.color,open:!!r.open};if(r.poly)o.poly=r.poly.map(p=>[p[0],p[1]]);return o;}),
+    rooms:rooms.map(r=>{const o={name:r.name,desired:r.desired,x:r.x,y:r.y,w:r.w,h:r.h,color:r.color,open:!!r.open,grade:!!r.grade};if(r.poly)o.poly=r.poly.map(p=>[p[0],p[1]]);return o;}),
     openings:openings.map(o=>({type:o.type,orient:o.orient,x:o.x,y:o.y,len:o.len,flip:!!o.flip,hinge:!!o.hinge})),
-    furniture:furniture.map(f=>({type:f.type,cx:f.cx,cy:f.cy,w:f.w,d:f.d,rot:f.rot||0,...(f.type==='stairs'?{width:f.width,going:f.going,flights:f.flights,turns:f.turns,walls:f.walls}:{})})),
+    furniture:furniture.map(f=>({type:f.type,cx:f.cx,cy:f.cy,w:f.w,d:f.d,rot:f.rot||0,...(f.type==='stairs'?{width:f.width,going:f.going,flights:f.flights,turns:f.turns,walls:f.walls,...(f.rise>0?{rise:f.rise}:{})}:{})})),
     dims:dims.map(m=>({a:[m.a[0],m.a[1]],b:[m.b[0],m.b[1]]}))};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
   const url=URL.createObjectURL(blob);const a=document.createElement('a');

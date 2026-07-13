@@ -191,7 +191,7 @@ function buildPiece(type,w,d,f,rise){const g=new THREE.Group();
     case"rug":{const r=new THREE.Mesh(new THREE.BoxGeometry(w,0.05,d),M(0xb1493f,{roughness:1}));r.position.y=0.03;r.receiveShadow=true;g.add(r);break;}
     case"stairs":{const going=(f&&f.going)||0.9,width=(f&&f.width)||w||3;
       let flights=f&&f.flights; if(!Array.isArray(flights)||!flights.length)flights=[Math.max(1,Math.round((d||10)/going))];
-      const turns=(f&&f.turns)||[],walls=(f&&f.walls)||[],P=stairPath(flights,turns,going,width),wd=M(F.woodD,{roughness:.85}),R2=rise||CEIL,total=P.total||1;
+      const turns=(f&&f.turns)||[],walls=(f&&f.walls)||[],P=stairPath(flights,turns,going,width),wd=M(F.woodD,{roughness:.85}),R2=(f&&+f.rise>0)?+f.rise:(rise||CEIL),total=P.total||1;
       P.runs.forEach((r,ri)=>{const px=r.dir[0],py=r.dir[1],walled=walls[ri]!==false;   // walled = wall to floor below (solid); floating = thin treads
         for(let k=0;k<r.n;k++){const h=(r.s0+k+1)/total*R2,t=((k+0.5)/r.n-0.5)*r.len,cx=r.cx+px*t,cz=r.cy+py*t;
           const xe=Math.abs(px)*(r.len/r.n)+Math.abs(py)*r.w, ze=Math.abs(py)*(r.len/r.n)+Math.abs(px)*r.w;
@@ -238,9 +238,11 @@ function build(L){
   ground.rotation.x=-Math.PI/2; ground.position.y=-0.06; ground.receiveShadow=true; world.add(ground);
   const grid=new THREE.GridHelper(1200,240,0xcfd3d9,0xd8dbe0); grid.position.y=-0.05; world.add(grid);
 
-  // floor slabs — every room (open rooms sit flat as patios/landscape)
+  // floor slabs — every room (open rooms sit flat as patios/landscape); at-grade rooms drop by the first-floor grade height
+  const gradeH=(L.plot&&+L.plot.grade)||0;
+  function ptInPoly(x,z,poly){let ins=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const xi=poly[i][0],zi=poly[i][1],xj=poly[j][0],zj=poly[j][1];if(((zi>z)!==(zj>z))&&(x<(xj-xi)*(z-zi)/(zj-zi)+xi))ins=!ins;}return ins;}
   rooms.forEach(r=>{const col=r.color||'#c8ccd2';
-    const h=r.open?0.08:SLAB+0.02, y=r.open?-0.02:0;
+    const h=r.open?0.08:SLAB+0.02, drop=(!r.open&&r.grade)?gradeH:0, y=(r.open?-0.02:0)-drop;
     if(Array.isArray(r.poly)&&r.poly.length>=3){          // shaped room → extrude its polygon as the floor slab
       const shape=new THREE.Shape();
       r.poly.forEach((p,i)=>{const sx=p[0]-CX,sy=p[1]-CZ;i===0?shape.moveTo(sx,sy):shape.lineTo(sx,sy);});
@@ -248,6 +250,12 @@ function build(L){
       const m=new THREE.Mesh(geo,M(new THREE.Color(col),{roughness:.9}));m.position.y=y-h/2;m.receiveShadow=true;world.add(m);
       return;}
     world.add(box(r.w-0.1,h,r.h-0.1,M(new THREE.Color(col),{roughness:.9}),r.x+r.w/2-CX,y,CZ-(r.y+r.h/2)));});
+  // retaining (skirt) walls around each at-grade room, holding back the grade from -gradeH up to the first floor
+  if(gradeH>0)closed.forEach(r=>{if(!r.grade)return;const skirt=M(F.stone,{roughness:.9});
+    const seg=(a,b)=>{const len=Math.hypot(b[0]-a[0],b[1]-a[1]);if(len<0.2)return;const horiz=Math.abs(b[1]-a[1])<=Math.abs(b[0]-a[0]);
+      world.add(box(horiz?len:0.4,gradeH,horiz?0.4:len,skirt,(a[0]+b[0])/2-CX,-gradeH,CZ-(a[1]+b[1])/2));};
+    if(Array.isArray(r.poly)&&r.poly.length>=3){for(let i=0;i<r.poly.length;i++)seg(r.poly[i],r.poly[(i+1)%r.poly.length]);}
+    else{const x0=r.x,y0=r.y,x1=r.x+r.w,y1=r.y+r.h;seg([x0,y0],[x1,y0]);seg([x1,y0],[x1,y1]);seg([x1,y1],[x0,y1]);seg([x0,y1],[x0,y0]);}});
 
   // ---- walls (from walled-room edges, deduped, with door gaps) ----
   // "outside" = beyond the building footprint. Falls back to the room test if there are no wings.
@@ -337,8 +345,11 @@ function build(L){
 
   // ---- furniture ----
   const stairRise=((L.plot&&+L.plot.ceilH)||9)+1;   // floor-to-floor rise for stairs (ceiling height + standard floor assembly)
+  const baseYFor=f=>{if(f.type!=='stairs'||!gradeH)return FT;                    // a stair standing in an at-grade room starts at that lower floor
+    for(const r of closed){if(!r.grade)continue;const inside=(Array.isArray(r.poly)&&r.poly.length>=3)?ptInPoly(f.cx,f.cy,r.poly):(f.cx>r.x&&f.cx<r.x+r.w&&f.cy>r.y&&f.cy<r.y+r.h);if(inside)return FT-gradeH;}
+    return FT;};
   furniture.forEach(f=>{const g=buildPiece(f.type,Math.max(0.5,f.w||3),Math.max(0.5,f.d||3),f,stairRise);
-    g.position.set(f.cx-CX,FT,CZ-f.cy); g.rotation.y=-(f.rot||0)*Math.PI/180;
+    g.position.set(f.cx-CX,baseYFor(f),CZ-f.cy); g.rotation.y=-(f.rot||0)*Math.PI/180;
     world.add(g); furnGroups.push(g);});
 
   // ---- labels ----
