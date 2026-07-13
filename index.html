@@ -1883,6 +1883,7 @@ function renderCtx(panel){
     const o=openings[ctx.idx]||{};
     h=`<div class="hd">${(o.type||'opening')}</div><button data-act="orot">⤾ Turn (H ↔ V)</button>`+
       (o.type==='door'?`<button data-act="oflip">⇄ Flip swing</button><button data-act="ohinge">⇄ Flip hinge</button>`:'')+
+      (o.type==='door'||o.type==='doorway'?`<button data-act="ogrd">${o.grade?'▲ Lift to first floor':'▼ Sit at grade'}</button>`:'')+
       `<button class="danger" data-act="odel">✕ Delete</button>`;
   }else if(panel==='furn'){
     h=`<div class="hd">Add furniture</div><div class="scroll">`+
@@ -1956,6 +1957,7 @@ ctxEl.addEventListener('click',e=>{
     case'orot':{const o=openings[ctx.idx];if(o){o.orient=o.orient==='v'?'h':'v';renderOpenings();renderPlan();scheduleSave();}break;}
     case'oflip':{const o=openings[ctx.idx];if(o){o.flip=!o.flip;renderOpenings();renderPlan();scheduleSave();}break;}
     case'ohinge':{const o=openings[ctx.idx];if(o){o.hinge=!o.hinge;renderOpenings();renderPlan();scheduleSave();}break;}
+    case'ogrd':{const o=openings[ctx.idx];if(o){o.grade=!o.grade;renderOpenings();renderPlan();scheduleSave();}break;}
     case'odel':openings.splice(ctx.idx,1);selectedOpening=null;renderOpenings();renderPlan();scheduleSave();break;
   }
   hideCtx();
@@ -2026,7 +2028,7 @@ function applyData(d){
   openings=Array.isArray(d.openings)?d.openings.map(o=>({
     type:OTYPES.includes(o.type)?o.type:'door',
     orient:o.orient==='v'?'v':'h',
-    x:+o.x||0,y:+o.y||0,len:Math.max(0.5,+o.len||3),flip:!!o.flip,hinge:!!o.hinge})):[];
+    x:+o.x||0,y:+o.y||0,len:Math.max(0.5,+o.len||3),flip:!!o.flip,hinge:!!o.hinge,grade:!!o.grade})):[];
   furniture=Array.isArray(d.furniture)?d.furniture.map(f=>{const cat=FURN[f.type]||{w:3,d:3};
     const o={type:FURN[f.type]?f.type:'table',cx:+f.cx||0,cy:+f.cy||0,
       w:Math.max(0.5,+f.w||cat.w),d:Math.max(0.5,+f.d||cat.d),rot:((+f.rot||0)%360+360)%360};
@@ -2132,7 +2134,7 @@ function exportJSON(){
     iwallsHide3d:iwalls.map(w=>!!w.hide3d),
     iwallsFence:iwalls.map(w=>!!w.fence),
     rooms:rooms.map(r=>{const o={name:r.name,desired:r.desired,x:r.x,y:r.y,w:r.w,h:r.h,color:r.color,open:!!r.open,grade:!!r.grade};if(r.poly)o.poly=r.poly.map(p=>[p[0],p[1]]);return o;}),
-    openings:openings.map(o=>({type:o.type,orient:o.orient,x:o.x,y:o.y,len:o.len,flip:!!o.flip,hinge:!!o.hinge})),
+    openings:openings.map(o=>({type:o.type,orient:o.orient,x:o.x,y:o.y,len:o.len,flip:!!o.flip,hinge:!!o.hinge,...(o.grade?{grade:true}:{})})),
     furniture:furniture.map(f=>({type:f.type,cx:f.cx,cy:f.cy,w:f.w,d:f.d,rot:f.rot||0,...(f.type==='stairs'?{width:f.width,going:f.going,flights:f.flights,turns:f.turns,walls:f.walls,...(f.rise>0?{rise:f.rise}:{})}:{})})),
     dims:dims.map(m=>({a:[m.a[0],m.a[1]],b:[m.b[0],m.b[1]]}))};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});

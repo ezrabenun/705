@@ -213,6 +213,9 @@ function build(L){
   const rooms=Array.isArray(L.rooms)?L.rooms:[];
   const openings=Array.isArray(L.openings)?L.openings:[];
   const furniture=Array.isArray(L.furniture)?L.furniture:[];
+  const iwalls=Array.isArray(L.iwalls)?L.iwalls:[];
+  const iwallsHide3d=Array.isArray(L.iwallsHide3d)?L.iwallsHide3d:[];
+  const iwallsFence=Array.isArray(L.iwallsFence)?L.iwallsFence:[];
   const wallsCfg=L.walls||{ext:7,int:4.75};
   const T_EXT=Math.max(0.25,(+wallsCfg.ext||7)/12), T_INT=Math.max(0.2,(+wallsCfg.int||4.75)/12);
   const closed=rooms.filter(r=>!r.open);
@@ -257,7 +260,7 @@ function build(L){
       const horiz=Math.abs(z2-z1)<Math.abs(x2-x1),n=Math.max(1,Math.round(len/0.5));let run=null;
       const put=(ax,az,bx,bz)=>{const l=Math.hypot(bx-ax,bz-az);if(l<0.15)return;const hz=Math.abs(bz-az)<Math.abs(bx-ax);world.add(box(hz?l:th,gradeH,hz?th:l,mat,(ax+bx)/2-CX,-gradeH,CZ-(az+bz)/2));};
       const flush=()=>{if(run){put(run.x1,run.z1,run.x2,run.z2);run=null;}};
-      for(let k=0;k<n;k++){const mx=x1+(x2-x1)*(k+0.5)/n,mz=z1+(z2-z1)*(k+0.5)/n,draw=!garageGap(mx,mz,horiz);
+      for(let k=0;k<n;k++){const mx=x1+(x2-x1)*(k+0.5)/n,mz=z1+(z2-z1)*(k+0.5)/n,draw=!gradeGap(mx,mz,horiz);
         const sx=x1+(x2-x1)*k/n,sz=z1+(z2-z1)*k/n,ex=x1+(x2-x1)*(k+1)/n,ez=z1+(z2-z1)*(k+1)/n;
         if(draw){if(run){run.x2=ex;run.z2=ez;}else run={x1:sx,z1:sz,x2:ex,z2:ez};}else flush();}
       flush();};
@@ -287,10 +290,14 @@ function build(L){
       else     { if(o.orient==='v'&&Math.abs(mx-o.x)<0.7&&mz>o.y-0.25&&mz<o.y+o.len+0.25)return true; } }
     return false;
   }
-  function garageGap(mx,mz,horiz){                  // garage doors also cut the foundation, so the opening is clear from grade
-    for(const o of openings){ if(o.type!=='garage')continue;
+  function gradeGap(mx,mz,horiz){                  // things that sit at grade cut the foundation/skirt: garage doors, grade-flagged openings, fences
+    for(const o of openings){ if(!(o.type==='garage'||o.grade))continue;
       if(horiz){ if(o.orient==='h'&&Math.abs(mz-o.y)<0.7&&mx>o.x-0.25&&mx<o.x+o.len+0.25)return true; }
       else     { if(o.orient==='v'&&Math.abs(mx-o.x)<0.7&&mz>o.y-0.25&&mz<o.y+o.len+0.25)return true; } }
+    for(let wi=0;wi<iwalls.length;wi++){ if(!iwallsFence[wi])continue; const w=iwalls[wi];
+      for(let i=0;i+1<w.length;i++){const a=w[i],b=w[i+1];
+        if(Math.abs(a[0]-b[0])<0.05){ if(Math.abs(mx-a[0])<0.7&&mz>Math.min(a[1],b[1])-0.25&&mz<Math.max(a[1],b[1])+0.25)return true; }
+        else if(Math.abs(a[1]-b[1])<0.05){ if(Math.abs(mz-a[1])<0.7&&mx>Math.min(a[0],b[0])-0.25&&mx<Math.max(a[0],b[0])+0.25)return true; } } }
     return false;
   }
   const extMat=()=>M(0xd8c8a4,{transparent:true,opacity:0.5,roughness:.6,side:THREE.DoubleSide,depthWrite:false});   // beige exterior walls
@@ -314,9 +321,6 @@ function build(L){
     }
     flush();
   }
-  const iwalls=Array.isArray(L.iwalls)?L.iwalls:[];
-  const iwallsHide3d=Array.isArray(L.iwallsHide3d)?L.iwallsHide3d:[];   // walls flagged 2D-only in the editor are omitted here
-  const iwallsFence=Array.isArray(L.iwallsFence)?L.iwallsFence:[];      // walls flagged as fences render as posts + rails
   // build a fence along a segment: posts every ~6 ft + two rails, ~4.5 ft tall
   function buildFence(x1,z1,x2,z2){const len=Math.hypot(x2-x1,z2-z1);if(len<0.25)return;
     const FH=4.5,base=-gradeH,pw=M(F.woodD,{roughness:.9}),rw=M(F.wood,{roughness:.9});   // fences sit on grade
@@ -370,9 +374,9 @@ function build(L){
       world.add(box(0.72,0.15,o.len,mull,o.x-CX,sill+h/2,CZ-(o.y+o.len/2)));}});
 
   // ---- doors (open leaf shows swing; doorways are just the gap) ----
-  openings.forEach(o=>{ if(o.type!=='door')return; const mat=M(0xf2efe9,{roughness:.7}),s=o.flip?-1:1;
-    if(o.orient==='h') world.add(box(0.16,6.7,o.len,mat,o.x-CX,FT,CZ-(o.y-s*o.len/2)));  // z is flipped, so swing sign flips
-    else               world.add(box(o.len,6.7,0.16,mat,(o.x+s*o.len/2)-CX,FT,CZ-o.y)); });
+  openings.forEach(o=>{ if(o.type!=='door')return; const mat=M(0xf2efe9,{roughness:.7}),s=o.flip?-1:1,by=o.grade?-gradeH:FT;   // grade doors sit at grade
+    if(o.orient==='h') world.add(box(0.16,6.7,o.len,mat,o.x-CX,by,CZ-(o.y-s*o.len/2)));  // z is flipped, so swing sign flips
+    else               world.add(box(o.len,6.7,0.16,mat,(o.x+s*o.len/2)-CX,by,CZ-o.y)); });
 
   // ---- garage doors (shown OPEN — the panel is rolled up under the ceiling, opening clear below) ----
   openings.forEach(o=>{ if(o.type!=='garage')return; const mat=M(0xd0d5db,{roughness:.5}),ph=0.9,py=CEIL-ph;
