@@ -723,7 +723,7 @@ function nearestIWall(px,py,thresh){let best=-1,bd=thresh;
   return best;}
 // enter the right edit mode for the wall kind under a point (null = none)
 function editWallAt(px,py){const hit=wallHitType(px,py,0.8);
-  if(hit==='iwall'){drawWall=null;editOutline=false;editWalls=true;buildWallsPanel();buildFramePanel();renderPlan();return true;}
+  if(hit==='iwall'){drawWall=null;editOutline=false;editWalls=true;selectedWall=nearestIWall(px,py,0.8);buildWallsPanel();buildFramePanel();renderPlan();return true;}
   if(hit==='outline'){drawWall=null;editWalls=false;editOutline=true;buildFramePanel();buildWallsPanel();renderPlan();return true;}
   return false;}
 
@@ -1027,16 +1027,20 @@ function drawIWallEdit(){
   if(editWalls&&selectedWall!=null&&iwalls[selectedWall]&&iwalls[selectedWall].length>=2){   // highlight the selected wall
     const w=iwalls[selectedWall];
     svg.appendChild(el('path',{d:"M "+w.map(p=>fx(p[0])+" "+fyR(p[1])).join(" L "),fill:'none',stroke:'var(--blue)','stroke-width':Math.max(4,walls.int/12*PX+3),'stroke-opacity':.45}));}
-  if(editWalls)iwalls.forEach((w,wi)=>{
-    // transparent thick hit-line to grab the whole wall and slide it (drawn under the dots/+)
-    if(w.length>=2)svg.appendChild(el('path',{d:"M "+w.map(p=>fx(p[0])+" "+fyR(p[1])).join(" L "),fill:'none',stroke:'transparent','stroke-width':12,'data-iwmove':wi,style:'cursor:move'}));
-    for(let i=0;i+1<w.length;i++){const p=w[i],q=w[i+1],mx=(p[0]+q[0])/2,my=(p[1]+q[1])/2;
-      const add=el('circle',{cx:fx(mx),cy:fyR(my),r:6,fill:'var(--wall)',stroke:'#fff','stroke-width':1.5,'data-iwadd':wi+','+i});
-      add.style.cursor='copy';svg.appendChild(add);
-      const plus=txt(fx(mx),fyR(my)+3.4,'','+');plus.setAttribute('fill','#fff');plus.setAttribute('font-size','11');plus.setAttribute('font-weight','700');plus.style.pointerEvents='none';svg.appendChild(plus);}
-    w.forEach((p,pi)=>{const h=el('circle',{cx:fx(p[0]),cy:fyR(p[1]),r:5.5,fill:'#fff',stroke:'var(--ink)','stroke-width':2,'data-iwpt':wi+','+pi});
-      h.style.cursor='move';svg.appendChild(h);});
-  });
+  if(editWalls){
+    // pass 1: transparent hit-lines for every wall so any wall stays clickable to select/slide (drawn under the handles)
+    iwalls.forEach((w,wi)=>{if(w.length>=2)svg.appendChild(el('path',{d:"M "+w.map(p=>fx(p[0])+" "+fyR(p[1])).join(" L "),fill:'none',stroke:'transparent','stroke-width':12,'data-iwmove':wi,style:'cursor:move'}));});
+    // pass 2: only the selected wall's + add-points and draggable vertices, drawn LAST so they sit on top of every hit-line
+    const w=iwalls[selectedWall],wi=selectedWall;
+    if(w&&w.length>=2){
+      for(let i=0;i+1<w.length;i++){const p=w[i],q=w[i+1],mx=(p[0]+q[0])/2,my=(p[1]+q[1])/2;
+        const add=el('circle',{cx:fx(mx),cy:fyR(my),r:6,fill:'var(--wall)',stroke:'#fff','stroke-width':1.5,'data-iwadd':wi+','+i});
+        add.style.cursor='copy';svg.appendChild(add);
+        const plus=txt(fx(mx),fyR(my)+3.4,'','+');plus.setAttribute('fill','#fff');plus.setAttribute('font-size','11');plus.setAttribute('font-weight','700');plus.style.pointerEvents='none';svg.appendChild(plus);}
+      w.forEach((p,pi)=>{const h=el('circle',{cx:fx(p[0]),cy:fyR(p[1]),r:5.5,fill:'#fff',stroke:'var(--ink)','stroke-width':2,'data-iwpt':wi+','+pi});
+        h.style.cursor='move';svg.appendChild(h);});
+    }
+  }
   if(drawWall&&drawWall.length){
     if(drawWall.length>1)svg.appendChild(el('path',{d:"M "+drawWall.map(p=>fx(p[0])+" "+fyR(p[1])).join(" L "),fill:'none',stroke:'var(--wall)','stroke-width':Math.max(1,walls.int/12*PX),'stroke-opacity':.6,'stroke-dasharray':'5 3'}));
     drawWall.forEach(p=>svg.appendChild(el('circle',{cx:fx(p[0]),cy:fyR(p[1]),r:4,fill:'var(--red)'})));
@@ -1791,7 +1795,7 @@ ctxEl.addEventListener('click',e=>{
     case'wallstart':drawWall=[wallStartPoint(feet.x,feet.r)];editWalls=false;editOutline=false;buildWallsPanel();renderPlan();break;
     case'adddim':dimArmed=true;dimA=snapDimPoint(feet.x,feet.r);buildDimsPanel();renderPlan();break;
     case'dimdel2':if(ctx.dim!=null){dims.splice(ctx.dim,1);selectedDim=null;buildDimsPanel();renderPlan();scheduleSave();}break;
-    case'wedit':if(ctx.iwall!=null){editWalls=true;editOutline=false;drawWall=null;buildWallsPanel();renderPlan();}break;
+    case'wedit':if(ctx.iwall!=null){editWalls=true;editOutline=false;drawWall=null;selectedWall=ctx.iwall;buildWallsPanel();renderPlan();}break;
     case'wdel':if(ctx.iwall!=null){iwalls.splice(ctx.iwall,1);renderPlan();buildWallsPanel();scheduleSave();}break;
     case'rsnap':if(ctx.room!=null&&snapRoomToWalls(rooms[ctx.room])){renderList();renderPlan();scheduleSave();}break;
     case'rrename':{if(ctx.room==null)break;const nm=prompt('Rename room',rooms[ctx.room].name);
