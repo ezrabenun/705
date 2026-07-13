@@ -691,7 +691,7 @@ function overlapIntervals(){
   return out;}
 // does an interior-wall endpoint touch another interior wall or the exterior wall?
 function endConnected(E,own){
-  const tol=0.2,extH=walls.ext/24;
+  const tol=0,extH=walls.ext/24;
   for(let i=0;i<footprint.length;i++){const p=footprint[i],q=footprint[(i+1)%footprint.length];
     if(segDist(E[0],E[1],p[0],p[1],q[0],q[1])<=extH+tol)return true;}
   for(let wi=0;wi<iwalls.length;wi++){if(wi===own)continue;const w=iwalls[wi];
@@ -699,7 +699,7 @@ function endConnected(E,own){
   return false;}
 // portions of a room edge (orient at axis, from a..b) that have NO wall backing them (interior gaps/openings)
 function edgeGaps(orient,axis,a,b){
-  const tol=0.2,cov=[];
+  const tol=0.2,gtol=0.02,cov=[];   // gtol: flag ANY hole bigger than ~1/4" (matches where the flood-fill leaks)
   const add=(sx,slo,shi)=>{if(Math.abs(sx-axis)<tol){const lo=Math.max(a,slo),hi=Math.min(b,shi);if(hi-lo>0.05)cov.push([lo,hi]);}};
   for(let i=0;i<footprint.length;i++){const p=footprint[i],q=footprint[(i+1)%footprint.length];
     if(orient==='v'&&Math.abs(p[0]-q[0])<1e-6)add(p[0],Math.min(p[1],q[1]),Math.max(p[1],q[1]));
@@ -707,8 +707,8 @@ function edgeGaps(orient,axis,a,b){
   for(const w of iwalls)for(let i=0;i+1<w.length;i++){const p=w[i],q=w[i+1];
     if(orient==='v'&&Math.abs(p[0]-q[0])<1e-6)add(p[0],Math.min(p[1],q[1]),Math.max(p[1],q[1]));
     else if(orient==='h'&&Math.abs(p[1]-q[1])<1e-6)add(p[1],Math.min(p[0],q[0]),Math.max(p[0],q[0]));}
-  cov.sort((x,y)=>x[0]-y[0]);const m=[];for(const iv of cov){const l=m[m.length-1];if(l&&iv[0]<=l[1]+0.05)l[1]=Math.max(l[1],iv[1]);else m.push(iv.slice());}
-  const gaps=[];let cur=a;for(const[lo,hi]of m){if(lo-cur>0.25)gaps.push([cur,lo]);cur=Math.max(cur,hi);}if(b-cur>0.25)gaps.push([cur,b]);
+  cov.sort((x,y)=>x[0]-y[0]);const m=[];for(const iv of cov){const l=m[m.length-1];if(l&&iv[0]<=l[1]+gtol)l[1]=Math.max(l[1],iv[1]);else m.push(iv.slice());}
+  const gaps=[];let cur=a;for(const[lo,hi]of m){if(lo-cur>gtol)gaps.push([cur,lo]);cur=Math.max(cur,hi);}if(b-cur>gtol)gaps.push([cur,b]);
   return gaps;}
 function roomEdges(r){const pts=r.poly?r.poly:[[r.x,r.y],[r.x+r.w,r.y],[r.x+r.w,r.y+r.h],[r.x,r.y+r.h]],e=[];
   for(let i=0;i<pts.length;i++){const p=pts[i],q=pts[(i+1)%pts.length];
