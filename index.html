@@ -693,7 +693,7 @@ function overlapIntervals(){
   return out;}
 // does an interior-wall endpoint touch another interior wall or the exterior wall?
 function endConnected(E,own){
-  const tol=0,extH=walls.ext/24;
+  const tol=1e-6,extH=walls.ext/24;   // ~0 but nonzero: an end sitting ON the wall counts as joined (float-safe); real gaps still flag
   for(let i=0;i<footprint.length;i++){const p=footprint[i],q=footprint[(i+1)%footprint.length];
     if(segDist(E[0],E[1],p[0],p[1],q[0],q[1])<=extH+tol)return true;}
   for(let wi=0;wi<iwalls.length;wi++){if(wi===own)continue;const w=iwalls[wi];
