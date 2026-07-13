@@ -179,6 +179,7 @@
         <input class="sf" id="rsf" type="number" min="1" step="1" placeholder="200"></div>
       <button class="btn" id="addbtn">Add room</button>
       <button class="btn ghost" id="snapallbtn" title="Reshape every walled room to the space its walls enclose">⤢ Snap all to walls</button>
+      <button class="btn ghost" id="recolorbtn" title="Recolour rooms so no two touching rooms share a colour">🎨 Recolor</button>
     </div>
     <table class="rooms">
       <thead><tr>
@@ -1506,6 +1507,26 @@ document.getElementById('snapallbtn').onclick=()=>{
   selected=null;renderList();renderPlan();scheduleSave();
   ioStatus(n+' room'+(n===1?'':'s')+' snapped to walls');
 };
+// recolour walled rooms (greedy graph colouring) so no two touching rooms share a colour
+function recolorRooms(){
+  const idx=rooms.map((r,i)=>i).filter(i=>!rooms[i].open);
+  const bb=r=>roomBBox(r),tol=0.8,ov=0.5;
+  const adjacent=(a,b)=>{const A=bb(a),B=bb(b);
+    const xo=Math.min(A.x+A.w,B.x+B.w)-Math.max(A.x,B.x), yo=Math.min(A.y+A.h,B.y+B.h)-Math.max(A.y,B.y);
+    if(xo>ov&&yo>ov)return true;                                             // overlapping
+    if(yo>ov&&(Math.abs(A.x+A.w-B.x)<tol||Math.abs(B.x+B.w-A.x)<tol))return true;   // share a vertical edge
+    if(xo>ov&&(Math.abs(A.y+A.h-B.y)<tol||Math.abs(B.y+B.h-A.y)<tol))return true;   // share a horizontal edge
+    return false;};
+  const adj=new Map(idx.map(i=>[i,[]]));
+  for(let a=0;a<idx.length;a++)for(let b=a+1;b<idx.length;b++){const i=idx[a],j=idx[b];
+    if(adjacent(rooms[i],rooms[j])){adj.get(i).push(j);adj.get(j).push(i);}}
+  const order=idx.slice().sort((a,b)=>adj.get(b).length-adj.get(a).length);   // most-constrained first
+  const ci={};
+  for(const i of order){const used=new Set();for(const j of adj.get(i))if(ci[j]!=null)used.add(ci[j]);
+    let c=0;while(used.has(c))c++;ci[i]=c;}
+  order.forEach(i=>{rooms[i].color=RC[ci[i]%RC.length];});
+  return Math.max(0,...Object.values(ci).map(c=>c+1));}
+document.getElementById('recolorbtn').onclick=()=>{const k=recolorRooms();renderList();renderPlan();scheduleSave();ioStatus('Recoloured rooms ('+k+' colours)');};
 document.getElementById('rsf').addEventListener('keydown',e=>{if(e.key==='Enter')addRoom();});
 document.getElementById('rn').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('rsf').focus();});
 
