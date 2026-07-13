@@ -60,7 +60,7 @@
 <div id="hint" class="hud"><b>Drag</b> orbit · <b>Scroll</b> zoom · <b>Right-drag</b> pan</div>
 
 <div id="legend" class="hud">
-  <div class="row"><span class="sw" style="background:#2b3440"></span>Exterior wall</div>
+  <div class="row"><span class="sw" style="background:#d8c8a4"></span>Exterior wall</div>
   <div class="row"><span class="sw" style="background:#9cc0e6"></span>Interior wall</div>
   <div class="row"><span class="sw" style="background:#bfdcf2"></span>Window</div>
   <div class="row"><span class="sw" style="background:#f2efe9"></span>Door</div>
@@ -294,7 +294,7 @@ function build(L){
       else     { if(o.orient==='v'&&Math.abs(mx-o.x)<0.7&&mz>o.y-0.25&&mz<o.y+o.len+0.25)return true; } }
     return false;
   }
-  const extMat=()=>M(0x2b3440,{transparent:true,opacity:0.5,roughness:.6,side:THREE.DoubleSide,depthWrite:false});
+  const extMat=()=>M(0xd8c8a4,{transparent:true,opacity:0.5,roughness:.6,side:THREE.DoubleSide,depthWrite:false});   // beige exterior walls
   const intMat=()=>M(0x9cc0e6,{transparent:true,opacity:0.4,roughness:.35,side:THREE.DoubleSide,depthWrite:false});
   const STEP=0.5;
   function addWall(x1,z1,x2,z2,ext){const len=Math.hypot(x2-x1,z2-z1);if(len<0.25)return;
