@@ -375,8 +375,9 @@ function build(L){
 
   // ---- doors (open leaf shows swing; doorways are just the gap) ----
   openings.forEach(o=>{ if(o.type!=='door')return; const mat=M(0xf2efe9,{roughness:.7}),s=o.flip?-1:1,by=o.grade?-gradeH:FT;   // grade doors sit at grade
-    if(o.orient==='h') world.add(box(0.16,6.7,o.len,mat,o.x-CX,by,CZ-(o.y-s*o.len/2)));  // z is flipped, so swing sign flips
-    else               world.add(box(o.len,6.7,0.16,mat,(o.x+s*o.len/2)-CX,by,CZ-o.y)); });
+    const hx=o.hinge?o.x+o.len:o.x, hy=o.hinge?o.y+o.len:o.y;   // the open leaf pivots at the hinge end
+    if(o.orient==='h') world.add(box(0.16,6.7,o.len,mat,hx-CX,by,CZ-(o.y-s*o.len/2)));  // z is flipped, so swing sign flips
+    else               world.add(box(o.len,6.7,0.16,mat,(o.x+s*o.len/2)-CX,by,CZ-hy)); });
 
   // ---- garage doors (shown OPEN — the panel is rolled up under the ceiling, opening clear below) ----
   openings.forEach(o=>{ if(o.type!=='garage')return; const mat=M(0xd0d5db,{roughness:.5}),ph=0.9,py=CEIL-ph;
