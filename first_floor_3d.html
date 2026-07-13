@@ -250,23 +250,22 @@ function build(L){
       const m=new THREE.Mesh(geo,M(new THREE.Color(col),{roughness:.9}));m.position.y=y-h/2;m.receiveShadow=true;world.add(m);
       return;}
     world.add(box(r.w-0.1,h,r.h-0.1,M(new THREE.Color(col),{roughness:.9}),r.x+r.w/2-CX,y,CZ-(r.y+r.h/2)));});
-  // retaining (skirt) walls around each at-grade room, holding back the grade from -gradeH up to the first floor
-  if(gradeH>0)closed.forEach(r=>{if(!r.grade)return;const skirt=M(F.stone,{roughness:.9});
-    const seg=(a,b)=>{const len=Math.hypot(b[0]-a[0],b[1]-a[1]);if(len<0.2)return;const horiz=Math.abs(b[1]-a[1])<=Math.abs(b[0]-a[0]);
-      world.add(box(horiz?len:0.4,gradeH,horiz?0.4:len,skirt,(a[0]+b[0])/2-CX,-gradeH,CZ-(a[1]+b[1])/2));};
-    if(Array.isArray(r.poly)&&r.poly.length>=3){for(let i=0;i<r.poly.length;i++)seg(r.poly[i],r.poly[(i+1)%r.poly.length]);}
-    else{const x0=r.x,y0=r.y,x1=r.x+r.w,y1=r.y+r.h;seg([x0,y0],[x1,y0]);seg([x1,y0],[x1,y1]);seg([x1,y1],[x0,y1]);seg([x0,y1],[x0,y0]);}});
-  // foundation around the building footprint, from grade up to the first floor, so the raised first floor reads correctly
-  // (cut where a garage door sits, so its opening is clear all the way down to grade)
-  if(gradeH>0&&footprint){const fnd=M(F.stone,{roughness:.95});
-    const fseg=(x1,z1,x2,z2)=>{const l=Math.hypot(x2-x1,z2-z1);if(l<0.2)return;const hz=Math.abs(z2-z1)<Math.abs(x2-x1);world.add(box(hz?l:T_EXT,gradeH,hz?T_EXT:l,fnd,(x1+x2)/2-CX,-gradeH,CZ-(z1+z2)/2));};
-    for(let i=0;i<footprint.length;i++){const a=footprint[i],b=footprint[(i+1)%footprint.length],len=Math.hypot(b[0]-a[0],b[1]-a[1]);if(len<0.2)continue;
-      const horiz=Math.abs(b[1]-a[1])<Math.abs(b[0]-a[0]),n=Math.max(1,Math.round(len/0.5));let run=null;
-      const flush=()=>{if(run){fseg(run.x1,run.z1,run.x2,run.z2);run=null;}};
-      for(let k=0;k<n;k++){const mx=a[0]+(b[0]-a[0])*(k+0.5)/n,mz=a[1]+(b[1]-a[1])*(k+0.5)/n,draw=!garageGap(mx,mz,horiz);
-        const sx=a[0]+(b[0]-a[0])*k/n,sz=a[1]+(b[1]-a[1])*k/n,ex=a[0]+(b[0]-a[0])*(k+1)/n,ez=a[1]+(b[1]-a[1])*(k+1)/n;
+  // grade-level low walls (retaining skirt around grade rooms + foundation around the footprint), -gradeH up to 0.
+  // Subdivided so a garage door's opening is cut all the way down to grade.
+  if(gradeH>0){
+    const lowWall=(x1,z1,x2,z2,mat,th)=>{const len=Math.hypot(x2-x1,z2-z1);if(len<0.2)return;
+      const horiz=Math.abs(z2-z1)<Math.abs(x2-x1),n=Math.max(1,Math.round(len/0.5));let run=null;
+      const put=(ax,az,bx,bz)=>{const l=Math.hypot(bx-ax,bz-az);if(l<0.15)return;const hz=Math.abs(bz-az)<Math.abs(bx-ax);world.add(box(hz?l:th,gradeH,hz?th:l,mat,(ax+bx)/2-CX,-gradeH,CZ-(az+bz)/2));};
+      const flush=()=>{if(run){put(run.x1,run.z1,run.x2,run.z2);run=null;}};
+      for(let k=0;k<n;k++){const mx=x1+(x2-x1)*(k+0.5)/n,mz=z1+(z2-z1)*(k+0.5)/n,draw=!garageGap(mx,mz,horiz);
+        const sx=x1+(x2-x1)*k/n,sz=z1+(z2-z1)*k/n,ex=x1+(x2-x1)*(k+1)/n,ez=z1+(z2-z1)*(k+1)/n;
         if(draw){if(run){run.x2=ex;run.z2=ez;}else run={x1:sx,z1:sz,x2:ex,z2:ez};}else flush();}
-      flush();}}
+      flush();};
+    const skirt=M(F.stone,{roughness:.9}),fnd=M(F.stone,{roughness:.95});
+    closed.forEach(r=>{if(!r.grade)return;const pts=(Array.isArray(r.poly)&&r.poly.length>=3)?r.poly:[[r.x,r.y],[r.x+r.w,r.y],[r.x+r.w,r.y+r.h],[r.x,r.y+r.h]];
+      for(let i=0;i<pts.length;i++){const a=pts[i],b=pts[(i+1)%pts.length];lowWall(a[0],a[1],b[0],b[1],skirt,0.4);}});
+    if(footprint)for(let i=0;i<footprint.length;i++){const a=footprint[i],b=footprint[(i+1)%footprint.length];lowWall(a[0],a[1],b[0],b[1],fnd,T_EXT);}
+  }
 
   // ---- walls (from walled-room edges, deduped, with door gaps) ----
   // "outside" = beyond the building footprint. Falls back to the room test if there are no wings.
@@ -319,10 +318,17 @@ function build(L){
   const iwallsHide3d=Array.isArray(L.iwallsHide3d)?L.iwallsHide3d:[];   // walls flagged 2D-only in the editor are omitted here
   const iwallsFence=Array.isArray(L.iwallsFence)?L.iwallsFence:[];      // walls flagged as fences render as posts + rails
   // build a fence along a segment: posts every ~6 ft + two rails, ~4.5 ft tall
-  function buildFence(x1,z1,x2,z2){const len=Math.hypot(x2-x1,z2-z1);if(len<0.25)return;const FH=4.5,pw=M(F.woodD,{roughness:.9}),rw=M(F.wood,{roughness:.9});
-    const n=Math.max(1,Math.round(len/6)),horiz=Math.abs(z2-z1)<Math.abs(x2-x1);
-    for(let k=0;k<=n;k++){const t=k/n;world.add(box(0.3,FH,0.3,pw,x1+(x2-x1)*t-CX,0,CZ-(z1+(z2-z1)*t)));}
-    [1.6,3.4].forEach(ry=>world.add(box(horiz?len:0.12,0.25,horiz?0.12:len,rw,(x1+x2)/2-CX,ry,CZ-(z1+z2)/2)));}
+  function buildFence(x1,z1,x2,z2){const len=Math.hypot(x2-x1,z2-z1);if(len<0.25)return;
+    const FH=4.5,base=-gradeH,pw=M(F.woodD,{roughness:.9}),rw=M(F.wood,{roughness:.9});   // fences sit on grade
+    const horiz=Math.abs(z2-z1)<Math.abs(x2-x1),n=Math.max(1,Math.round(len/0.5));let run=null;
+    const build=(ax,az,bx,bz)=>{const l=Math.hypot(bx-ax,bz-az);if(l<0.4)return;const hz=Math.abs(bz-az)<Math.abs(bx-ax),np=Math.max(1,Math.round(l/6));
+      for(let k=0;k<=np;k++){const t=k/np;world.add(box(0.3,FH,0.3,pw,ax+(bx-ax)*t-CX,base,CZ-(az+(bz-az)*t)));}
+      [1.6,3.4].forEach(ry=>world.add(box(hz?l:0.12,0.25,hz?0.12:l,rw,(ax+bx)/2-CX,base+ry,CZ-(az+bz)/2)));};
+    const flush=()=>{if(run){build(run.x1,run.z1,run.x2,run.z2);run=null;}};   // skip door/doorway gaps so they read as open
+    for(let k=0;k<n;k++){const mx=x1+(x2-x1)*(k+0.5)/n,mz=z1+(z2-z1)*(k+0.5)/n,draw=!gapHit(mx,mz,horiz);
+      const sx=x1+(x2-x1)*k/n,sz=z1+(z2-z1)*k/n,ex=x1+(x2-x1)*(k+1)/n,ez=z1+(z2-z1)*(k+1)/n;
+      if(draw){if(run){run.x2=ex;run.z2=ez;}else run={x1:sx,z1:sz,x2:ex,z2:ez};}else flush();}
+    flush();}
   if(footprint){                                          // new model: outline = exterior, iwalls = interior
     for(let i=0;i<footprint.length;i++){const p=footprint[i],q=footprint[(i+1)%footprint.length];buildWallAlong(p[0],p[1],q[0],q[1],true);}
     iwalls.forEach((w,wi)=>{if(iwallsHide3d[wi])return;
@@ -375,8 +381,10 @@ function build(L){
 
   // ---- furniture ----
   const stairRise=((L.plot&&+L.plot.ceilH)||9)+1;   // floor-to-floor rise for stairs (ceiling height + standard floor assembly)
-  const baseYFor=f=>{if(f.type!=='stairs'||!gradeH)return FT;                    // a stair standing in an at-grade room starts at that lower floor
-    for(const r of closed){if(!r.grade)continue;const inside=(Array.isArray(r.poly)&&r.poly.length>=3)?ptInPoly(f.cx,f.cy,r.poly):(f.cx>r.x&&f.cx<r.x+r.w&&f.cy>r.y&&f.cy<r.y+r.h);if(inside)return FT-gradeH;}
+  const baseYFor=f=>{if(f.type!=='stairs'||!gradeH)return FT;                    // a stair at grade starts at the lower floor
+    const inR=r=>(Array.isArray(r.poly)&&r.poly.length>=3)?ptInPoly(f.cx,f.cy,r.poly):(f.cx>r.x&&f.cx<r.x+r.w&&f.cy>r.y&&f.cy<r.y+r.h);
+    for(const r of rooms){if(r.grade&&inR(r))return FT-gradeH;}                  // any room marked grade (open or closed)
+    if(footprint&&!insideBuilding(f.cx,f.cy))return FT-gradeH;                   // standing outdoors → grade
     return FT;};
   furniture.forEach(f=>{const g=buildPiece(f.type,Math.max(0.5,f.w||3),Math.max(0.5,f.d||3),f,stairRise);
     g.position.set(f.cx-CX,baseYFor(f),CZ-f.cy); g.rotation.y=-(f.rot||0)*Math.PI/180;
