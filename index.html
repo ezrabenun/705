@@ -163,6 +163,8 @@
   </div>
 
   <div class="io">
+    <button class="btn ghost" id="undobtn" title="Undo (Ctrl+Z)" disabled>↶ Undo</button>
+    <button class="btn ghost" id="redobtn" title="Redo (Ctrl+Y)" disabled>↷ Redo</button>
     <button class="btn" id="view3dbtn">🧊 3D View</button>
     <button class="btn ghost" id="exportbtn">⬇ Export</button>
     <button class="btn ghost" id="importbtn">⬆ Import</button>
@@ -1760,9 +1762,21 @@ async function saveLayout(manual){
   catch(e){ioStatus("Couldn't save",true);}
 }
 function scheduleSave(){
+  if(ready&&!histLock)pushHistory();
   if(!ready||!STORE)return;
   ioStatus("Saving…");clearTimeout(saveTimer);saveTimer=setTimeout(()=>saveLayout(false),700);
 }
+/* ---------- undo / redo ---------- */
+let history=[],histIdx=-1,histLock=false;
+function histSnap(){return JSON.stringify({plot,walls,footprint,iwalls,rooms,openings,furniture});}
+function resetHistory(){history=[histSnap()];histIdx=0;updateUndoButtons();}
+function pushHistory(){if(histLock)return;const s=histSnap();if(histIdx>=0&&history[histIdx]===s)return;   // no real change
+  history=history.slice(0,histIdx+1);history.push(s);if(history.length>80)history.shift();histIdx=history.length-1;updateUndoButtons();}
+function applyHistory(){histLock=true;applyData(JSON.parse(history[histIdx]));scheduleSave();histLock=false;updateUndoButtons();}
+function undo(){if(histIdx>0){histIdx--;applyHistory();ioStatus('Undo');}}
+function redo(){if(histIdx<history.length-1){histIdx++;applyHistory();ioStatus('Redo');}}
+function updateUndoButtons(){const u=document.getElementById('undobtn'),r=document.getElementById('redobtn');
+  if(u)u.disabled=histIdx<=0;if(r)r.disabled=histIdx>=history.length-1;}
 async function getDefaultName(){
   if(!SHARED)return null;
   try{const res=await SHARED.get(DEFAULT_NAME_KEY,false);return res&&res.value?res.value:null;}
@@ -1797,7 +1811,7 @@ async function loadSaved(){
   const stamp=o=>(o&&o.savedAt)?(Date.parse(o.savedAt)||0):0;
   if(local&&stamp(local)>=stamp(def)){applyData(local);ioStatus("Loaded your latest edits");}
   else if(def){applyData(def);ioStatus(`Loaded default (“${defaultName}”)`);}
-  ready=true;
+  ready=true;resetHistory();
 }
 async function resetToDefault(){
   const obj=defaultName?await getVersions():null;
@@ -1855,6 +1869,15 @@ document.getElementById('view3dbtn').onclick=async()=>{
 };
 document.getElementById('resetbtn').onclick=resetToDefault;
 document.getElementById('exportbtn').onclick=exportJSON;
+document.getElementById('undobtn').onclick=undo;
+document.getElementById('redobtn').onclick=redo;
+document.addEventListener('keydown',e=>{
+  if(!(e.ctrlKey||e.metaKey))return;
+  if(/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName))return;   // let text fields keep native undo
+  const k=e.key.toLowerCase();
+  if(k==='z'&&!e.shiftKey){undo();e.preventDefault();}
+  else if(k==='y'||(k==='z'&&e.shiftKey)){redo();e.preventDefault();}
+});
 document.getElementById('importbtn').onclick=()=>document.getElementById('importfile').click();
 document.getElementById('importfile').addEventListener('change',e=>{
   const f=e.target.files[0];if(f)importJSON(f);e.target.value='';
@@ -1956,7 +1979,7 @@ document.getElementById('verlist').addEventListener('change',e=>{
 });
 document.getElementById('vername').addEventListener('input',updateStarState);
 
-renderPlan();renderList();renderOpenings();renderFurniture();
+renderPlan();renderList();renderOpenings();renderFurniture();resetHistory();
 (async()=>{await loadSaved();await refreshVersions();})();
 </script>
 </body>
