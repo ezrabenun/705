@@ -222,6 +222,7 @@
       <button class="btn tool" id="furn-place">＋ Place</button>
       <span class="hint" id="furnhint">Tip: <b>right-click</b> (or <b>press &amp; hold</b> on touch) the plan to add furniture (or rotate/delete a piece) right where you tap. Or pick a piece here and hit Place. Tap a piece to move it, drag an edge handle to resize that side, ↻ to rotate; or edit its size below.</span>
     </div>
+    <div id="stairedit" style="display:none;margin-bottom:12px"></div>
     <table class="rooms" id="furntable">
       <thead><tr>
         <th class="l">Piece</th><th>X</th><th>Y</th><th>W</th><th>D</th><th>Rotate</th><th></th>
@@ -245,6 +246,10 @@
       <div class="card"><h3>Frame position</h3>
         <div class="fld"><label>Front setback</label><input type="number" id="p-offF" min="0" step="1"></div>
         <div class="fld"><label>Right setback</label><input type="number" id="p-offR" min="0" step="1"></div>
+      </div>
+      <div class="card"><h3>Ceiling height</h3>
+        <div class="fld"><label>Clear height (ft)</label><input type="number" id="p-ceil" min="4" step="0.5"></div>
+        <div class="hint" style="margin:0">Floor-to-floor = ceiling + 1 ft floor. Sets how many stair steps reach the next floor.</div>
       </div>
     </div>
   </div>
@@ -355,7 +360,7 @@ let rooms=[
   {name:"Closet", desired:10, x:-15, y:25, w:5.5, h:2, color:"#2C5C8A"},
   {name:"Stairs", desired:288, x:48.5, y:22, w:5, h:12, color:"#7A4E8C", open:true},
 ];
-let plot={pw:100,pd:150,offF:30.25,offR:10};   // lot W×D; frame front setback & right-side setback
+let plot={pw:100,pd:150,offF:30.25,offR:10,ceilH:9};   // lot W×D; frame front/right setbacks; ceilH = clear ceiling height (ft)
 let walls={ext:7,int:4.75};                  // wall thickness in INCHES
 // openings sit on top of the walls. type: 'door' (leaf + swing arc) | 'doorway' (plain gap) | 'window' (glazing).
 // x,y = one end (ft); orient 'h' spans +x, 'v' spans +y; len in ft; flip mirrors a door's swing side.
@@ -783,6 +788,7 @@ function buildPlotPanel(){
   document.getElementById('p-pd').value=fmt(plot.pd);
   document.getElementById('p-offF').value=fmt(plot.offF);
   document.getElementById('p-offR').value=fmt(plot.offR);
+  document.getElementById('p-ceil').value=fmt(plot.ceilH);
 }
 [['p-pw','pw'],['p-pd','pd'],['p-offF','offF'],['p-offR','offR']].forEach(([id,key])=>{
   document.getElementById(id).addEventListener('input',e=>{
@@ -790,6 +796,7 @@ function buildPlotPanel(){
     plot[key]=v;renderPlan();scheduleSave();
   });
 });
+document.getElementById('p-ceil').addEventListener('input',e=>{plot.ceilH=Math.max(4,parseFloat(e.target.value)||9);renderFurniture();renderPlan();scheduleSave();});
 buildPlotPanel();
 
 /* ---------- walls editor ---------- */
@@ -1180,6 +1187,7 @@ function armFurn(){placeFurn=placeFurn?null:document.getElementById('furnsel').v
 /* ---------- furniture (top-down symbols) ---------- */
 function drawFurniture(){
   furniture.forEach((f,i)=>{
+    if(f.type==='stairs'){const st=getStair(f),P=stairPath(st.flights,st.turns,st.going,st.width);f.w=P.w;f.d=P.d;}   // bbox follows the parametric shape
     const W=f.w*PX,H=f.d*PX,sx=fx(f.cx),sy=fyR(f.cy);
     const g=el('g',{transform:`translate(${sx} ${sy}) rotate(${f.rot||0})`});
     furnSymbol(f.type,W,H,g,f);
@@ -1191,24 +1199,33 @@ function drawFurniture(){
       g.appendChild(el('rect',{x:-W/2-2,y:-H/2-2,width:W+4,height:H+4,fill:'none',stroke:'var(--red)','stroke-width':1.5,'stroke-dasharray':'5 3'}));
       g.appendChild(el('line',{x1:0,y1:-H/2-2,x2:0,y2:-H/2-16,stroke:'var(--red)','stroke-width':1.4}));
       g.appendChild(el('circle',{cx:0,cy:-H/2-18,r:5,fill:'#fff',stroke:'var(--red)','stroke-width':1.6,'data-furn':i,'data-frot':1}));
-      [['l',-1,0],['r',1,0],['f',0,-1],['b',0,1]].forEach(([side,qx,qy])=>  // edge-midpoint handles: resize one dimension at a time
+      if(f.type!=='stairs')[['l',-1,0],['r',1,0],['f',0,-1],['b',0,1]].forEach(([side,qx,qy])=>  // edge-midpoint handles: resize one dimension at a time
         g.appendChild(el('rect',{x:qx*W/2-4,y:qy*H/2-4,width:8,height:8,fill:'#fff',stroke:'var(--red)','stroke-width':1.4,'data-furn':i,'data-fresize':side})));
     }
     svg.appendChild(g);
   });
 }
-// stair geometry in local feet (u = width axis, v = depth axis, origin at centre). h0/h1 are 0..1 rise fractions.
-// straight = one run; L = one 90° turn + landing; U = switchback (turn, platform, turn again).
-function stairLayout(shape,w,d){
-  if(shape==='L'){const R=Math.max(2,Math.min(w,d)*0.5);
-    return {runs:[{u0:-w/2,u1:-w/2+R,v0:-d/2,v1:d/2-R,axis:'v',h0:0,h1:.5},
-                  {u0:-w/2+R,u1:w/2,v0:d/2-R,v1:d/2,axis:'u',h0:.5,h1:1}],
-            landings:[{u0:-w/2,u1:-w/2+R,v0:d/2-R,v1:d/2,h:.5}]};}
-  if(shape==='U'){const L=Math.max(2,Math.min(d*0.34,w)),g=Math.min(0.4,w*0.05),rw=(w-2*g)/2;
-    return {runs:[{u0:-w/2,u1:-w/2+rw,v0:-d/2,v1:d/2-L,axis:'v',h0:0,h1:.5},
-                  {u0:w/2-rw,u1:w/2,v0:d/2-L,v1:-d/2,axis:'v',h0:.5,h1:1}],
-            landings:[{u0:-w/2,u1:w/2,v0:d/2-L,v1:d/2,h:.5}]};}
-  return {runs:[{u0:-w/2,u1:w/2,v0:-d/2,v1:d/2,axis:'v',h0:0,h1:1}],landings:[]};
+const FLOOR_ASSY=1;                                          // standard floor-assembly depth (ft) between ceiling below and floor above
+function floorRise(){return (plot.ceilH||9)+FLOOR_ASSY;}    // floor-to-floor height the stairs must climb (ft)
+function stepsNeeded(){return Math.round(floorRise()*12/7);}// total steps at a ~7" riser
+// resolve a stairs piece's parameters (with fallbacks for older/plain pieces)
+function getStair(f){const going=f.going||0.9, width=f.width||f.w||3; let flights=f.flights,turns=f.turns||[];
+  if(!Array.isArray(flights)||!flights.length){flights=[Math.max(1,Math.round((f.d||10)/going))];turns=[];}
+  return {going,width,flights:flights.map(n=>Math.max(1,n|0)),turns};}
+// walk the flights (each a run of `n` steps) with a landing + L/R turn between them; returns centred local-feet geometry
+function stairPath(flights,turns,going,width){
+  let dir=[0,1],pos=[0,0],si=0; const runs=[],lands=[],rot=(v,t)=>t==='R'?[v[1],-v[0]]:[-v[1],v[0]];
+  for(let i=0;i<flights.length;i++){const n=Math.max(1,flights[i]|0),len=n*going;
+    runs.push({cx:pos[0]+dir[0]*len/2,cy:pos[1]+dir[1]*len/2,dir:dir.slice(),len,w:width,n,s0:si});
+    si+=n; const end=[pos[0]+dir[0]*len,pos[1]+dir[1]*len];
+    if(i<flights.length-1){const lc=[end[0]+dir[0]*width/2,end[1]+dir[1]*width/2];
+      lands.push({cx:lc[0],cy:lc[1],w:width,s:si});
+      const nd=rot(dir,turns[i]||'L'); pos=[lc[0]+nd[0]*width/2,lc[1]+nd[1]*width/2]; dir=nd;}}
+  let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9; const acc=(cx,cy,ax,ay)=>{x0=Math.min(x0,cx-ax);x1=Math.max(x1,cx+ax);y0=Math.min(y0,cy-ay);y1=Math.max(y1,cy+ay);};
+  runs.forEach(r=>acc(r.cx,r.cy,Math.abs(r.dir[0])*r.len/2+Math.abs(r.dir[1])*r.w/2,Math.abs(r.dir[1])*r.len/2+Math.abs(r.dir[0])*r.w/2));
+  lands.forEach(l=>acc(l.cx,l.cy,l.w/2,l.w/2));
+  const mx=(x0+x1)/2,my=(y0+y1)/2; runs.forEach(r=>{r.cx-=mx;r.cy-=my;}); lands.forEach(l=>{l.cx-=mx;l.cy-=my;});
+  return {runs,lands,w:x1-x0,d:y1-y0,total:si};
 }
 function furnSymbol(type,W,H,g,f){
   const c=(FURN[type]||{}).c||'#b0b4bb',ink='var(--ink)',hw=W/2,hh=H/2;
@@ -1244,24 +1261,25 @@ function furnSymbol(type,W,H,g,f){
     case'plant':C(0,0,Math.min(hw,hh)-1,'#8a5a3c');C(0,0,Math.min(hw,hh)*0.7,'#4f7a48');break;
     case'washer':foot('#ededed',1,2);C(0,0,Math.min(hw,hh)*0.55,'#cfd9e2');break;
     case'rug':foot(c,.2,3).setAttribute('stroke-dasharray','5 3');break;
-    case'stairs':{foot('#e6ddcf',.95,1);                            // treads across each run + an "up" arrow; landings drawn plain
-      const lay=stairLayout((f&&f.shape)||'straight', W/PX, H/PX), X=u=>u*PX, Y=v=>v*PX;
-      lay.runs.forEach(r=>{
-        const len=r.axis==='v'?Math.abs(r.v1-r.v0):Math.abs(r.u1-r.u0), n=Math.max(2,Math.round(len/0.9));
-        for(let k=1;k<n;k++){const t=k/n;
-          if(r.axis==='v'){const v=r.v0+(r.v1-r.v0)*t;L(X(r.u0),Y(v),X(r.u1),Y(v));}
-          else{const u=r.u0+(r.u1-r.u0)*t;L(X(u),Y(r.v0),X(u),Y(r.v1));}}
-        if(r.axis==='v'){const x=X((r.u0+r.u1)/2),y0=Y(r.v0),y1=Y(r.v1),s=Math.sign(y1-y0);A('line',{x1:x,y1:y0,x2:x,y2:y1,stroke:ink,'stroke-width':1.2});L(x,y1,x-3,y1-3*s);L(x,y1,x+3,y1-3*s);}
-        else{const y=Y((r.v0+r.v1)/2),x0=X(r.u0),x1=X(r.u1),s=Math.sign(x1-x0);A('line',{x1:x0,y1:y,x2:x1,y2:y,stroke:ink,'stroke-width':1.2});L(x1,y,x1-3*s,y-3);L(x1,y,x1-3*s,y+3);}
-      });
-      lay.landings.forEach(nd=>R(X(nd.u0),Y(nd.v0),X(nd.u1)-X(nd.u0),Y(nd.v1)-Y(nd.v0),'#d8ccb6',.95,1));
+    case'stairs':{const st=getStair(f||{w:W/PX,d:H/PX}),P=stairPath(st.flights,st.turns,st.going,st.width),X=v=>v*PX,Y=v=>v*PX;
+      P.runs.forEach(r=>{const px=r.dir[0],py=r.dir[1],qx=-py,qy=px;         // dir & perpendicular
+        const rw=(Math.abs(px)*r.len+Math.abs(py)*r.w)*PX, rh=(Math.abs(py)*r.len+Math.abs(px)*r.w)*PX;
+        R(X(r.cx)-rw/2,Y(r.cy)-rh/2,rw,rh,'#e6ddcf',.95,1);                  // run footprint
+        for(let k=1;k<r.n;k++){const t=(k/r.n-0.5)*r.len,cx=r.cx+px*t,cy=r.cy+py*t;
+          L(X(cx-qx*r.w/2),Y(cy-qy*r.w/2),X(cx+qx*r.w/2),Y(cy+qy*r.w/2));}   // tread
+        const e1x=X(r.cx+px*r.len/2),e1y=Y(r.cy+py*r.len/2);                 // up-arrow toward the ascending end
+        A('line',{x1:X(r.cx-px*r.len/2),y1:Y(r.cy-py*r.len/2),x2:e1x,y2:e1y,stroke:ink,'stroke-width':1});
+        L(e1x,e1y,e1x-px*4-qx*3,e1y-py*4-qy*3);L(e1x,e1y,e1x-px*4+qx*3,e1y-py*4+qy*3);});
+      P.lands.forEach(l=>R(X(l.cx)-l.w*PX/2,Y(l.cy)-l.w*PX/2,l.w*PX,l.w*PX,'#d8ccb6',.95,1));
       break;}
     default:foot(c,.6,2);
   }
 }
 function placeFurnItem(feet){
   const type=placeFurn,cat=FURN[type]||{w:3,d:3};
-  furniture.push({type,cx:snap(feet.x),cy:snap(feet.r),w:cat.w||3,d:cat.d||3,rot:0});
+  const f={type,cx:snap(feet.x),cy:snap(feet.r),w:cat.w||3,d:cat.d||3,rot:0};
+  if(type==='stairs'){f.width=3;f.going=0.9;f.flights=[stepsNeeded()];f.turns=[];}   // one straight flight with the steps needed to reach the next floor
+  furniture.push(f);
   selectedFurn=furniture.length-1;selected=null;selectedOpening=null;
   placeFurn=null;updateToolButtons();
   renderFurniture();renderPlan();scheduleSave();
@@ -1416,7 +1434,7 @@ svg.addEventListener('pointerdown',e=>{
       const p=feetFromEvent(e);
       drag={kind:'furn',mode:'move',idx,sx:p.x,sr:p.r,o:Object.assign({},furniture[idx])};
     }else{                                           // first tap selects
-      selectedFurn=idx;selected=null;selectedOpening=null;renderPlan();
+      selectedFurn=idx;selected=null;selectedOpening=null;renderPlan();buildStairEditor();
     }
     try{svg.setPointerCapture(e.pointerId);}catch(_){}
     e.preventDefault();return;
@@ -1751,9 +1769,10 @@ document.getElementById('tool-doorway').onclick=()=>armTool('doorway');
 document.getElementById('tool-window').onclick=()=>armTool('window');
 
 /* ---------- furniture editor ---------- */
-const flist=document.getElementById('furnlist'),furnSel=document.getElementById('furnsel');
+const flist=document.getElementById('furnlist'),furnSel=document.getElementById('furnsel'),stairEd=document.getElementById('stairedit');
 furnSel.innerHTML=FURN_ORDER.map(t=>`<option value="${t}">${FURN[t].lbl}</option>`).join('');
 function renderFurniture(){
+  buildStairEditor();
   if(!furniture.length){flist.innerHTML='<tr><td colspan="7" class="empty">No furniture yet — pick a piece, hit Place, then click the plan.</td></tr>';return;}
   flist.innerHTML=furniture.map((f,i)=>`<tr>
     <td class="l"><span class="sw" style="background:${(FURN[f.type]||{}).c||'#aaa'}"></span>${(FURN[f.type]||{lbl:f.type}).lbl}</td>
@@ -1777,6 +1796,39 @@ flist.addEventListener('click',e=>{
 });
 document.getElementById('furn-place').onclick=armFurn;
 
+// ---- stairs editor (shown when a stairs piece is selected) ----
+function ensureStair(f){const st=getStair(f);if(!Array.isArray(f.flights))f.flights=st.flights.slice();if(!Array.isArray(f.turns))f.turns=st.turns.slice();if(f.width==null)f.width=st.width;if(f.going==null)f.going=st.going;}
+function buildStairEditor(){
+  const f=(selectedFurn!=null&&furniture[selectedFurn]&&furniture[selectedFurn].type==='stairs')?furniture[selectedFurn]:null;
+  if(!f){stairEd.style.display='none';stairEd.innerHTML='';return;}
+  const st=getStair(f),placed=st.flights.reduce((a,b)=>a+b,0),need=stepsNeeded(),diff=placed-need;
+  const flights=st.flights.map((n,i)=>
+    (i>0?`<button class="del" data-stturn="${i-1}" title="Turn direction">${st.turns[i-1]==='R'?'↱R':'↰L'}</button>`:'')+
+    `<input class="num" data-stf="${i}" type="number" min="1" step="1" value="${n}" style="width:48px">`+
+    `<button class="del" data-stdel="${i}" title="Remove flight"${st.flights.length<=1?' disabled':''}>✕</button>`
+  ).join('<span style="color:var(--ink-soft)">→</span>');
+  stairEd.style.display='block';
+  stairEd.innerHTML=`<div class="card"><h3>Stairs</h3>
+    <div class="hint" style="margin:0 0 6px">Floor-to-floor <b>${fmt(floorRise())} ft</b> · Steps needed <b>${need}</b> (7&Prime; riser) — split them across the flights.</div>
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><label style="font-size:12px">Width</label><input class="num" id="st-width" type="number" min="0.5" step="0.5" value="${fmt(st.width)}" style="width:56px"> ft
+      <label style="font-size:12px;margin-left:8px">Tread</label><input class="num" id="st-going" type="number" min="4" step="0.5" value="${fmt(st.going*12)}" style="width:56px"> in</div>
+    <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:8px"><label style="font-size:12px">Flights</label>${flights}<button class="del" id="st-add" title="Add a flight (left turn)">＋</button></div>
+    <div class="hint" style="margin:6px 0 0;font-weight:700;color:${diff===0?'var(--green,#2F7D54)':'var(--red)'}">Placed ${placed} / ${need}${diff===0?' ✓':(diff>0?` — ${diff} too many`:` — ${-diff} short`)}</div></div>`;
+}
+stairEd.addEventListener('input',e=>{const f=furniture[selectedFurn];if(!f)return;ensureStair(f);
+  if(e.target.id==='st-width')f.width=Math.max(0.5,parseFloat(e.target.value)||3);
+  else if(e.target.id==='st-going')f.going=Math.max(0.33,(parseFloat(e.target.value)||10.8)/12);
+  else if(e.target.dataset.stf!=null)f.flights[+e.target.dataset.stf]=Math.max(1,parseInt(e.target.value)||1);
+  else return;
+  renderPlan();scheduleSave();});   // note: no editor rebuild here, so the field keeps focus while typing
+stairEd.addEventListener('click',e=>{const f=furniture[selectedFurn];if(!f)return;ensureStair(f);const t=e.target;
+  if(t.id==='st-add'){f.flights.push(Math.max(1,need0(f)));f.turns.push('L');}
+  else if(t.dataset.stdel!=null){if(f.flights.length>1){const i=+t.dataset.stdel;f.flights.splice(i,1);f.turns.splice(Math.min(i,f.turns.length-1),1);}}
+  else if(t.dataset.stturn!=null){const i=+t.dataset.stturn;f.turns[i]=f.turns[i]==='R'?'L':'R';}
+  else return;
+  renderFurniture();renderPlan();scheduleSave();});
+function need0(f){const s=(f.flights||[]).reduce((a,b)=>a+b,0);return Math.max(1,stepsNeeded()-s)||4;}
+
 /* ---------- right-click context menu (place & edit on the plan) ---------- */
 const ctxEl=document.getElementById('ctxmenu');
 let ctx=null;   // {kind:'add'|'furn'|'open', idx?, feet}
@@ -1785,7 +1837,7 @@ function renderCtx(panel){
   if(ctx.kind==='furn'){
     const isStair=furniture[ctx.idx]&&furniture[ctx.idx].type==='stairs';
     h=`<div class="hd">Furniture</div><button data-act="frot">↻ Rotate 90°</button>`+
-      (isStair?`<button data-act="fstair">⟲ Shape: ${furniture[ctx.idx].shape||'straight'}</button>`:'')+
+      (isStair?`<button data-act="fstair">✎ Edit stairs</button>`:'')+
       `<button data-act="fsel">Select</button><button class="danger" data-act="fdel">✕ Delete</button>`;
   }else if(ctx.kind==='open'){
     const o=openings[ctx.idx]||{};
@@ -1854,8 +1906,8 @@ ctxEl.addEventListener('click',e=>{
     case'addwindow':placeTool='window';placeOpening(feet);break;
     case'addfurn':placeFurn=b.dataset.type;placeFurnItem(feet);break;
     case'frot':furniture[ctx.idx].rot=((furniture[ctx.idx].rot||0)+90)%360;renderFurniture();renderPlan();scheduleSave();break;
-    case'fstair':{const f=furniture[ctx.idx];if(f){const seq=['straight','L','U'];f.shape=seq[(seq.indexOf(f.shape||'straight')+1)%seq.length];if(f.shape!=='straight'&&f.w<6)f.w=6;renderFurniture();renderPlan();scheduleSave();}break;}
-    case'fsel':selectedFurn=ctx.idx;selected=null;selectedOpening=null;renderPlan();break;
+    case'fstair':selectedFurn=ctx.idx;selected=selectedOpening=selectedDim=null;setTab('furniture');renderFurniture();renderPlan();break;
+    case'fsel':selectedFurn=ctx.idx;selected=null;selectedOpening=null;renderPlan();buildStairEditor();break;
     case'fdel':furniture.splice(ctx.idx,1);selectedFurn=null;renderFurniture();renderPlan();scheduleSave();break;
     case'orot':{const o=openings[ctx.idx];if(o){o.orient=o.orient==='v'?'h':'v';renderOpenings();renderPlan();scheduleSave();}break;}
     case'oflip':{const o=openings[ctx.idx];if(o){o.flip=!o.flip;renderOpenings();renderPlan();scheduleSave();}break;}
@@ -1909,7 +1961,7 @@ function ioStatus(msg,err){const s=document.getElementById('iostatus');s.textCon
 
 function applyData(d){
   if(d.plot&&typeof d.plot==='object')
-    plot={pw:Math.max(1,+d.plot.pw||100),pd:Math.max(1,+d.plot.pd||150),offF:Math.max(0,+d.plot.offF||0),offR:Math.max(0,+d.plot.offR||0)};
+    plot={pw:Math.max(1,+d.plot.pw||100),pd:Math.max(1,+d.plot.pd||150),offF:Math.max(0,+d.plot.offF||0),offR:Math.max(0,+d.plot.offR||0),ceilH:Math.max(4,+d.plot.ceilH||9)};
   if(d.walls&&typeof d.walls==='object')
     walls={ext:Math.max(0,+d.walls.ext||0),int:Math.max(0,+d.walls.int||0)};
   if(Array.isArray(d.footprint)&&d.footprint.length>=3)
@@ -1932,9 +1984,12 @@ function applyData(d){
     orient:o.orient==='v'?'v':'h',
     x:+o.x||0,y:+o.y||0,len:Math.max(0.5,+o.len||3),flip:!!o.flip,hinge:!!o.hinge})):[];
   furniture=Array.isArray(d.furniture)?d.furniture.map(f=>{const cat=FURN[f.type]||{w:3,d:3};
-    return {type:FURN[f.type]?f.type:'table',cx:+f.cx||0,cy:+f.cy||0,
-      w:Math.max(0.5,+f.w||cat.w),d:Math.max(0.5,+f.d||cat.d),rot:((+f.rot||0)%360+360)%360,
-      ...(f.shape?{shape:f.shape}:{})};}):[];
+    const o={type:FURN[f.type]?f.type:'table',cx:+f.cx||0,cy:+f.cy||0,
+      w:Math.max(0.5,+f.w||cat.w),d:Math.max(0.5,+f.d||cat.d),rot:((+f.rot||0)%360+360)%360};
+    if(o.type==='stairs'){o.width=Math.max(0.5,+f.width||+f.w||3);o.going=Math.max(0.3,+f.going||0.9);
+      if(Array.isArray(f.flights)&&f.flights.length)o.flights=f.flights.map(n=>Math.max(1,n|0));
+      if(Array.isArray(f.turns))o.turns=f.turns.map(t=>t==='R'?'R':'L');}
+    return o;}):[];
   dims=Array.isArray(d.dims)?d.dims.filter(m=>m&&Array.isArray(m.a)&&Array.isArray(m.b)).map(m=>({a:[+m.a[0]||0,+m.a[1]||0],b:[+m.b[0]||0,+m.b[1]||0]})):[];
   selected=null;selectedOpening=null;selectedFurn=null;dimArmed=false;dimA=null;
   buildPlotPanel();buildWallsPanel();buildFramePanel();buildDimsPanel();renderPlan();renderList();renderOpenings();renderFurniture();
@@ -2024,14 +2079,14 @@ async function resetToDefault(){
 
 function exportJSON(){
   const data={schema:"first-floor-plan",version:1,exported:new Date().toISOString(),
-    plot:{pw:plot.pw,pd:plot.pd,offF:plot.offF,offR:plot.offR},
+    plot:{pw:plot.pw,pd:plot.pd,offF:plot.offF,offR:plot.offR,ceilH:plot.ceilH},
     walls:{ext:walls.ext,int:walls.int},
     footprint:footprint.map(p=>[p[0],p[1]]),
     iwalls:iwalls.map(w=>w.map(p=>[p[0],p[1]])),
     iwallsHide3d:iwalls.map(w=>!!w.hide3d),
     rooms:rooms.map(r=>{const o={name:r.name,desired:r.desired,x:r.x,y:r.y,w:r.w,h:r.h,color:r.color,open:!!r.open};if(r.poly)o.poly=r.poly.map(p=>[p[0],p[1]]);return o;}),
     openings:openings.map(o=>({type:o.type,orient:o.orient,x:o.x,y:o.y,len:o.len,flip:!!o.flip,hinge:!!o.hinge})),
-    furniture:furniture.map(f=>({type:f.type,cx:f.cx,cy:f.cy,w:f.w,d:f.d,rot:f.rot||0,...(f.shape?{shape:f.shape}:{})})),
+    furniture:furniture.map(f=>({type:f.type,cx:f.cx,cy:f.cy,w:f.w,d:f.d,rot:f.rot||0,...(f.type==='stairs'?{width:f.width,going:f.going,flights:f.flights,turns:f.turns}:{})})),
     dims:dims.map(m=>({a:[m.a[0],m.a[1]],b:[m.b[0],m.b[1]]}))};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
   const url=URL.createObjectURL(blob);const a=document.createElement('a');

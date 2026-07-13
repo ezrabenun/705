@@ -148,19 +148,22 @@ function plant(g,x,z){cy(g,0.55,0.9,F.pot,x,0,z);const s=new THREE.Mesh(new THRE
 function washer(g,x,z){bx(g,2.2,3,2.2,F.white,x,0,z);const dr=new THREE.Mesh(new THREE.CircleGeometry(0.7,18),M(0x2a2e34));dr.position.set(x,1.6,z+1.11);g.add(dr);}
 
 // build one furniture piece (centred at origin) sized by footprint w×d
-// stair geometry in local feet (u = width axis, v = depth axis, origin at centre); h0/h1 are 0..1 rise fractions
-function stairLayout(shape,w,d){
-  if(shape==='L'){const R=Math.max(2,Math.min(w,d)*0.5);
-    return {runs:[{u0:-w/2,u1:-w/2+R,v0:-d/2,v1:d/2-R,axis:'v',h0:0,h1:.5},
-                  {u0:-w/2+R,u1:w/2,v0:d/2-R,v1:d/2,axis:'u',h0:.5,h1:1}],
-            landings:[{u0:-w/2,u1:-w/2+R,v0:d/2-R,v1:d/2,h:.5}]};}
-  if(shape==='U'){const L=Math.max(2,Math.min(d*0.34,w)),g=Math.min(0.4,w*0.05),rw=(w-2*g)/2;
-    return {runs:[{u0:-w/2,u1:-w/2+rw,v0:-d/2,v1:d/2-L,axis:'v',h0:0,h1:.5},
-                  {u0:w/2-rw,u1:w/2,v0:d/2-L,v1:-d/2,axis:'v',h0:.5,h1:1}],
-            landings:[{u0:-w/2,u1:w/2,v0:d/2-L,v1:d/2,h:.5}]};}
-  return {runs:[{u0:-w/2,u1:w/2,v0:-d/2,v1:d/2,axis:'v',h0:0,h1:1}],landings:[]};
+// walk the flights (each a run of `n` steps) with a landing + L/R turn between; returns centred local-feet geometry
+function stairPath(flights,turns,going,width){
+  let dir=[0,1],pos=[0,0],si=0; const runs=[],lands=[],rot=(v,t)=>t==='R'?[v[1],-v[0]]:[-v[1],v[0]];
+  for(let i=0;i<flights.length;i++){const n=Math.max(1,flights[i]|0),len=n*going;
+    runs.push({cx:pos[0]+dir[0]*len/2,cy:pos[1]+dir[1]*len/2,dir:dir.slice(),len,w:width,n,s0:si});
+    si+=n; const end=[pos[0]+dir[0]*len,pos[1]+dir[1]*len];
+    if(i<flights.length-1){const lc=[end[0]+dir[0]*width/2,end[1]+dir[1]*width/2];
+      lands.push({cx:lc[0],cy:lc[1],w:width,s:si});
+      const nd=rot(dir,turns[i]||'L'); pos=[lc[0]+nd[0]*width/2,lc[1]+nd[1]*width/2]; dir=nd;}}
+  let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9; const acc=(cx,cy,ax,ay)=>{x0=Math.min(x0,cx-ax);x1=Math.max(x1,cx+ax);y0=Math.min(y0,cy-ay);y1=Math.max(y1,cy+ay);};
+  runs.forEach(r=>acc(r.cx,r.cy,Math.abs(r.dir[0])*r.len/2+Math.abs(r.dir[1])*r.w/2,Math.abs(r.dir[1])*r.len/2+Math.abs(r.dir[0])*r.w/2));
+  lands.forEach(l=>acc(l.cx,l.cy,l.w/2,l.w/2));
+  const mx=(x0+x1)/2,my=(y0+y1)/2; runs.forEach(r=>{r.cx-=mx;r.cy-=my;}); lands.forEach(l=>{l.cx-=mx;l.cy-=my;});
+  return {runs,lands,w:x1-x0,d:y1-y0,total:si};
 }
-function buildPiece(type,w,d,shape){const g=new THREE.Group();
+function buildPiece(type,w,d,f,rise){const g=new THREE.Group();
   switch(type){
     case"sofa":case"loveseat":sofa(g,w,d,M(F.fabricB),0,0,0);break;
     case"armchair":sofa(g,Math.max(2.4,w),Math.max(2.4,d),M(F.fabric),0,0,0);break;
@@ -186,12 +189,13 @@ function buildPiece(type,w,d,shape){const g=new THREE.Group();
     case"plant":plant(g,0,0);break;
     case"washer":washer(g,0,0);break;
     case"rug":{const r=new THREE.Mesh(new THREE.BoxGeometry(w,0.05,d),M(0xb1493f,{roughness:1}));r.position.y=0.03;r.receiveShadow=true;g.add(r);break;}
-    case"stairs":{const lay=stairLayout(shape||'straight',w,d),wd=M(F.woodD,{roughness:.85});   // runs + landings; switchback/L supported
-      lay.runs.forEach(r=>{const along=r.axis==='v'?Math.abs(r.v1-r.v0):Math.abs(r.u1-r.u0),n=Math.max(2,Math.round(along/0.9));
-        for(let k=0;k<n;k++){const h=(r.h0+(r.h1-r.h0)*(k+1)/n)*CEIL;
-          if(r.axis==='v'){const v=r.v0+(r.v1-r.v0)*(k+0.5)/n;bx(g,Math.abs(r.u1-r.u0),h,along/n,wd,(r.u0+r.u1)/2,0,v);}
-          else{const u=r.u0+(r.u1-r.u0)*(k+0.5)/n;bx(g,along/n,h,Math.abs(r.v1-r.v0),wd,u,0,(r.v0+r.v1)/2);}}});
-      lay.landings.forEach(nd=>bx(g,Math.abs(nd.u1-nd.u0),nd.h*CEIL,Math.abs(nd.v1-nd.v0),wd,(nd.u0+nd.u1)/2,0,(nd.v0+nd.v1)/2));
+    case"stairs":{const going=(f&&f.going)||0.9,width=(f&&f.width)||w||3;
+      let flights=f&&f.flights; if(!Array.isArray(flights)||!flights.length)flights=[Math.max(1,Math.round((d||10)/going))];
+      const turns=(f&&f.turns)||[],P=stairPath(flights,turns,going,width),wd=M(F.woodD,{roughness:.85}),R2=rise||CEIL,total=P.total||1;
+      P.runs.forEach(r=>{const px=r.dir[0],py=r.dir[1];
+        for(let k=0;k<r.n;k++){const h=(r.s0+k+1)/total*R2,t=((k+0.5)/r.n-0.5)*r.len,cx=r.cx+px*t,cz=r.cy+py*t;
+          bx(g,Math.abs(px)*(r.len/r.n)+Math.abs(py)*r.w, h, Math.abs(py)*(r.len/r.n)+Math.abs(px)*r.w, wd, cx,0,cz);}});
+      P.lands.forEach(l=>bx(g,l.w,l.s/total*R2,l.w,wd,l.cx,0,l.cy));
       break;}
     default:bx(g,w,2,d,0x9aa0a8,0,0,0);
   }
@@ -329,7 +333,8 @@ function build(L){
     else               world.add(box(o.len,6.7,0.16,mat,(o.x+s*o.len/2)-CX,FT,CZ-o.y)); });
 
   // ---- furniture ----
-  furniture.forEach(f=>{const g=buildPiece(f.type,Math.max(0.5,f.w||3),Math.max(0.5,f.d||3),f.shape);
+  const stairRise=((L.plot&&+L.plot.ceilH)||9)+1;   // floor-to-floor rise for stairs (ceiling height + standard floor assembly)
+  furniture.forEach(f=>{const g=buildPiece(f.type,Math.max(0.5,f.w||3),Math.max(0.5,f.d||3),f,stairRise);
     g.position.set(f.cx-CX,FT,CZ-f.cy); g.rotation.y=-(f.rot||0)*Math.PI/180;
     world.add(g); furnGroups.push(g);});
 
