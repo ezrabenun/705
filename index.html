@@ -2014,7 +2014,7 @@ async function putVersions(obj){
   if(!SHARED)return false;
   try{await SHARED.set(VKEY,JSON.stringify(obj),false);return true;}catch(e){return false;}
 }
-function snapshot(){return {plot,walls,footprint,iwalls,rooms,openings,furniture,savedAt:new Date().toISOString()};}
+function snapshot(){return {plot,walls,footprint,iwalls,rooms,openings,furniture,dims,savedAt:new Date().toISOString()};}
 const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 function updateStarState(){
   const name=document.getElementById('vername').value.trim();
