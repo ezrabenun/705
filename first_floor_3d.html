@@ -133,6 +133,23 @@ function table(g,w,d,h,col,x,z){const t=new THREE.Group();h=h||2.4;col=col||F.wo
   [[-lx,-lz],[lx,-lz],[-lx,lz],[lx,lz]].forEach(p=>bx(t,0.2,h-0.2,0.2,F.woodD,p[0],0,p[1]));t.position.set(x||0,0,z||0);g.add(t);}
 function counter(g,w,d,x,z,rot){const c=new THREE.Group();bx(c,w,2.8,d,F.cab,0,0,0);bx(c,w+0.1,0.18,d+0.1,F.stone,0,2.8,0);c.rotation.y=rot||0;c.position.set(x,0,z);g.add(c);}
 function stool(g,x,z){cy(g,0.5,2.2,F.woodD,x,0,z);}
+// one upright bicycle, length along z, wheels rolling on the floor (axle along x)
+function bike(g,x,z,rot,col){const b=new THREE.Group();col=col||0x3a7ca5;
+  const wR=1.0,wT=0.16,hubY=wR,zf=-1.9,zr=1.9,topY=hubY+0.9;   // front/rear hub z, top-tube height
+  const wheel=zz=>{const m=new THREE.Mesh(new THREE.CylinderGeometry(wR,wR,wT,20),M(0x2a2a2e,{roughness:.7}));
+    m.rotation.z=Math.PI/2;m.position.set(0,hubY,zz);m.castShadow=true;b.add(m);};
+  wheel(zf);wheel(zr);
+  const tube=(x1,y1,z1,x2,y2,z2,r,tc)=>{const a=new THREE.Vector3(x1,y1,z1),bb=new THREE.Vector3(x2,y2,z2),d=new THREE.Vector3().subVectors(bb,a),len=d.length();
+    const m=new THREE.Mesh(new THREE.CylinderGeometry(r,r,len,10),M(tc==null?col:tc,{metalness:.35,roughness:.5}));
+    m.position.copy(a).addScaledVector(d,0.5);m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),d.clone().normalize());m.castShadow=true;b.add(m);};
+  tube(0,hubY,zf,0,topY,-0.2,0.07);   // front fork/down tube
+  tube(0,hubY,zr,0,topY,0.2,0.07);    // rear stay
+  tube(0,topY,-0.2,0,topY,0.2,0.07);  // top tube
+  tube(0,topY,-0.2,0,topY+0.75,-0.2,0.05);   // steerer
+  tube(0,topY,0.2,0,topY+0.5,0.2,0.05);      // seat post
+  const hb=new THREE.Mesh(new THREE.BoxGeometry(1.4,0.1,0.1),M(0x2a2a2e));hb.position.set(0,topY+0.78,-0.2);hb.castShadow=true;b.add(hb);
+  const seat=new THREE.Mesh(new THREE.BoxGeometry(0.35,0.12,0.8),M(0x24282e));seat.position.set(0,topY+0.55,0.2);seat.castShadow=true;b.add(seat);
+  b.rotation.y=rot||0;b.position.set(x,0,z);g.add(b);}
 function fridge(g,x,z,rot){const c=new THREE.Group();bx(c,2.8,6.2,2.6,F.steel,0,0,0);bx(c,0.15,6,0.2,F.metal,1.1,0.1,1.35);c.rotation.y=rot||0;c.position.set(x,0,z);g.add(c);}
 function stove(g,x,z){const c=new THREE.Group();bx(c,2.6,2.9,2.4,F.white,0,0,0);bx(c,2.5,0.12,2.3,F.black,0,2.9,0);c.position.set(x,0,z);g.add(c);}
 function toilet(g,x,z,rot){const c=new THREE.Group();bx(c,1.3,1.2,1.7,F.white,0,0,0.1);bx(c,1.3,1.9,0.6,F.white,0,0,-0.75);c.rotation.y=rot||0;c.position.set(x,0,z);g.add(c);}
@@ -197,6 +214,8 @@ function buildPiece(type,w,d,f,rise){const g=new THREE.Group();
     case"plant":plant(g,0,0);break;
     case"washer":washer(g,0,0);break;
     case"rug":{const r=new THREE.Mesh(new THREE.BoxGeometry(w,0.05,d),M(0xb1493f,{roughness:1}));r.position.y=0.03;r.receiveShadow=true;g.add(r);break;}
+    case"bicycles":{const n=Math.max(1,Math.round(w/2)),slot=w/n,cols=[0x3a7ca5,0xb1493f,0x4f7a48,0xd6a02b];   // width sets the bike count (~2 ft each)
+      for(let i=0;i<n;i++)bike(g,-w/2+slot*(i+0.5),0,0,cols[i%cols.length]);break;}
     case"stairs":{const going=(f&&f.going)||0.9,width=(f&&f.width)||w||3;
       let flights=f&&f.flights; if(!Array.isArray(flights)||!flights.length)flights=[Math.max(1,Math.round((d||10)/going))];
       const turns=(f&&f.turns)||[],walls=(f&&f.walls)||[],P=stairPath(flights,turns,going,width,f&&f.landW,f&&f.landD),wd=M(F.woodD,{roughness:.85}),R2=(f&&+f.rise>0)?+f.rise:(rise||CEIL),total=P.total||1;
