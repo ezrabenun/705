@@ -152,7 +152,7 @@ function washer(g,x,z){bx(g,2.2,3,2.2,F.white,x,0,z);const dr=new THREE.Mesh(new
 function stairPath(flights,turns,going,width,landWs,landDs){
   const lw=i=>{const v=Array.isArray(landWs)?landWs[i]:landWs;return v>0?+v:width;};
   const ld=i=>{const v=Array.isArray(landDs)?landDs[i]:landDs;return v>0?+v:width;};
-  let dir=[0,1],pos=[0,0],si=0; const runs=[],lands=[],rot=(v,t)=>t==='R'?[v[1],-v[0]]:[-v[1],v[0]];
+  let dir=[0,1],pos=[0,0],si=0; const runs=[],lands=[],rot=(v,t)=>t==='R'?[v[1],-v[0]]:t==='U'?[-v[0],-v[1]]:[-v[1],v[0]];
   for(let i=0;i<flights.length;i++){const n=Math.max(1,flights[i]|0),len=n*going;
     runs.push({cx:pos[0]+dir[0]*len/2,cy:pos[1]+dir[1]*len/2,dir:dir.slice(),len,w:width,n,s0:si});
     si+=n; const end=[pos[0]+dir[0]*len,pos[1]+dir[1]*len];
@@ -160,7 +160,10 @@ function stairPath(flights,turns,going,width,landWs,landDs){
       const rp=[dir[1],-dir[0]],os=t==='R'?-1:1,ox=rp[0]*os,oy=rp[1]*os;   // outer side of the turn — flights hug it, landing grows inward
       const lcx=end[0]+dir[0]*landD/2+ox*(width/2-landW/2), lcy=end[1]+dir[1]*landD/2+oy*(width/2-landW/2);
       lands.push({cx:lcx,cy:lcy,w:width,ex:dir[0]?landD:landW,ey:dir[1]?landD:landW,s:si});
-      pos=[end[0]+dir[0]*(landD-width/2)+ox*(width/2), end[1]+dir[1]*(landD-width/2)+oy*(width/2)];
+      if(t==='U'){   // 180° switchback: next flight runs back parallel, hugging the opposite lateral edge of the landing
+        pos=[end[0]-ox*(landW-width), end[1]-oy*(landW-width)];
+      }else{
+        pos=[end[0]+dir[0]*(landD-width/2)+ox*(width/2), end[1]+dir[1]*(landD-width/2)+oy*(width/2)];}
       dir=rot(dir,t);}}
   let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9; const acc=(cx,cy,ax,ay)=>{x0=Math.min(x0,cx-ax);x1=Math.max(x1,cx+ax);y0=Math.min(y0,cy-ay);y1=Math.max(y1,cy+ay);};
   runs.forEach(r=>acc(r.cx,r.cy,Math.abs(r.dir[0])*r.len/2+Math.abs(r.dir[1])*r.w/2,Math.abs(r.dir[1])*r.len/2+Math.abs(r.dir[0])*r.w/2));
