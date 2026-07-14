@@ -1252,18 +1252,18 @@ function getStair(f){const going=f.going||0.9, width=f.width||f.w||3; let flight
 function stairPath(flights,turns,going,width,landWs,landDs){
   const lw=i=>{const v=Array.isArray(landWs)?landWs[i]:landWs;return v>0?+v:width;};
   const ld=i=>{const v=Array.isArray(landDs)?landDs[i]:landDs;return v>0?+v:width;};
-  let dir=[0,1],pos=[0,0],si=0; const runs=[],lands=[],rot=(v,t)=>t==='R'?[v[1],-v[0]]:t==='U'?[-v[0],-v[1]]:[-v[1],v[0]];
+  let dir=[0,1],pos=[0,0],si=0; const runs=[],lands=[],rot=(v,t)=>t==='R'?[v[1],-v[0]]:t[0]==='U'?[-v[0],-v[1]]:[-v[1],v[0]];
   for(let i=0;i<flights.length;i++){const n=Math.max(1,flights[i]|0),len=n*going;
     runs.push({cx:pos[0]+dir[0]*len/2,cy:pos[1]+dir[1]*len/2,dir:dir.slice(),len,w:width,n,s0:si});
     si+=n; const end=[pos[0]+dir[0]*len,pos[1]+dir[1]*len];
     if(i<flights.length-1){const landW=lw(i),landD=ld(i),t=turns[i]||'L';
-      const rp=[dir[1],-dir[0]],os=t==='R'?-1:1,ox=rp[0]*os,oy=rp[1]*os;   // outer side of the turn — flights hug it, landing grows inward
+      const rp=[dir[1],-dir[0]],os=(t==='R'||t==='UR')?-1:1,ox=rp[0]*os,oy=rp[1]*os;   // outer side of the turn — flights hug it, landing grows inward
       // landing butts against the flight end (depth landD) and extends inward from the flight's outer edge (width landW)
       const lcx=end[0]+dir[0]*landD/2+ox*(width/2-landW/2), lcy=end[1]+dir[1]*landD/2+oy*(width/2-landW/2);
       lands.push({cx:lcx,cy:lcy,ex:dir[0]?landD:landW,ey:dir[1]?landD:landW,s:si});   // ex/ey = x/y extent of the landing rectangle
-      if(t==='U'){   // 180° switchback: next flight runs back parallel, hugging the opposite lateral edge of the landing
+      if(t[0]==='U'){   // 180° switchback (UL = wind left, UR = wind right): next flight runs back parallel, hugging the opposite lateral edge of the landing
         pos=[end[0]-ox*(landW-width), end[1]-oy*(landW-width)];
-      }else{         // 90° turn: next flight leaves from the outer corner of the landing (attached to the side, not the middle)
+      }else{            // 90° turn: next flight leaves from the outer corner of the landing (attached to the side, not the middle)
         pos=[end[0]+dir[0]*(landD-width/2)+ox*(width/2), end[1]+dir[1]*(landD-width/2)+oy*(width/2)];}
       dir=rot(dir,t);}}
   let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9; const acc=(cx,cy,ax,ay)=>{x0=Math.min(x0,cx-ax);x1=Math.max(x1,cx+ax);y0=Math.min(y0,cy-ay);y1=Math.max(y1,cy+ay);};
@@ -1854,7 +1854,7 @@ function buildStairEditor(){
   if(!f){stairEd.style.display='none';stairEd.innerHTML='';return;}
   const st=getStair(f),placed=st.flights.reduce((a,b)=>a+b,0),need=Math.round(st.rise*12/7),diff=placed-need;
   const flights=st.flights.map((n,i)=>
-    (i>0?`<button class="del" data-stturn="${i-1}" title="Turn direction (click to cycle L → R → U)">${st.turns[i-1]==='R'?'↱R':st.turns[i-1]==='U'?'↺U':'↰L'}</button>`:'')+
+    (i>0?`<button class="del" data-stturn="${i-1}" title="Turn direction (click to cycle L → R → U-left → U-right)">${(tv=>tv==='R'?'↱R':tv==='UR'?'↻U':(tv==='U'||tv==='UL')?'↺U':'↰L')(st.turns[i-1])}</button>`:'')+
     `<span style="display:inline-flex;flex-direction:column;align-items:center;gap:1px">`+
     `<input class="num" data-stf="${i}" type="number" min="1" step="1" value="${n}" style="width:48px">`+
     `<label style="font-size:10px;display:inline-flex;align-items:center;gap:2px" title="Wall down to the floor below (uncheck = floating/open underneath)"><input type="checkbox" data-stwall="${i}"${st.walls[i]?' checked':''}>wall</label>`+
@@ -1885,8 +1885,8 @@ stairEd.addEventListener('input',e=>{const f=furniture[selectedFurn];if(!f)retur
 stairEd.addEventListener('click',e=>{const f=furniture[selectedFurn];if(!f)return;ensureStair(f);const t=e.target;
   if(t.id==='st-add'){f.flights.push(Math.max(1,need0(f)));f.turns.push('L');f.walls.push(true);if(Array.isArray(f.landW))f.landW.push(f.width||3);if(Array.isArray(f.landD))f.landD.push(f.width||3);}
   else if(t.dataset.stdel!=null){if(f.flights.length>1){const i=+t.dataset.stdel;f.flights.splice(i,1);f.turns.splice(Math.min(i,f.turns.length-1),1);f.walls.splice(i,1);if(Array.isArray(f.landW))f.landW.splice(Math.min(i,f.landW.length-1),1);if(Array.isArray(f.landD))f.landD.splice(Math.min(i,f.landD.length-1),1);}}
-  else if(t.dataset.stturn!=null){const i=+t.dataset.stturn;const nx=f.turns[i]==='L'?'R':f.turns[i]==='R'?'U':'L';f.turns[i]=nx;
-    if(nx==='U'){ensureLandArr(f);if(!(f.landW[i]>=2*f.width))f.landW[i]=2*f.width;}}   // a switchback needs room for two flights side by side
+  else if(t.dataset.stturn!=null){const i=+t.dataset.stturn;const c=f.turns[i];const nx=c==='L'?'R':c==='R'?'UL':(c==='UL'||c==='U')?'UR':'L';f.turns[i]=nx;
+    if(nx[0]==='U'){ensureLandArr(f);if(!(f.landW[i]>=2*f.width))f.landW[i]=2*f.width;}}   // a switchback needs room for two flights side by side
   else if(t.dataset.stwall!=null){f.walls[+t.dataset.stwall]=t.checked;}
   else if(t.id==='st-grade'){f.rise=Math.max(0.5,plot.grade);}
   else if(t.id==='st-ff'){f.rise=floorRise();}
@@ -2072,7 +2072,7 @@ function applyData(d){
       w:Math.max(0.5,+f.w||cat.w),d:Math.max(0.5,+f.d||cat.d),rot:((+f.rot||0)%360+360)%360};
     if(o.type==='stairs'){o.width=Math.max(0.5,+f.width||+f.w||3);o.going=Math.max(0.3,+f.going||0.9);
       if(Array.isArray(f.flights)&&f.flights.length)o.flights=f.flights.map(n=>Math.max(1,n|0));
-      if(Array.isArray(f.turns))o.turns=f.turns.map(t=>t==='R'?'R':t==='U'?'U':'L');
+      if(Array.isArray(f.turns))o.turns=f.turns.map(t=>t==='R'?'R':t==='UR'?'UR':(t==='U'||t==='UL')?'UL':'L');
       if(Array.isArray(f.walls))o.walls=f.walls.map(w=>!!w);
       if(+f.rise>0)o.rise=+f.rise;
       if(Array.isArray(f.landW))o.landW=f.landW.map(Number); else if(+f.landW>0)o.landW=+f.landW;
