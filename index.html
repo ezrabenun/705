@@ -1216,7 +1216,7 @@ function armFurn(){placeFurn=placeFurn?null:document.getElementById('furnsel').v
 /* ---------- furniture (top-down symbols) ---------- */
 function drawFurniture(){
   furniture.forEach((f,i)=>{
-    if(f.type==='stairs'){const st=getStair(f),P=stairPath(st.flights,st.turns,st.going,st.width);f.w=P.w;f.d=P.d;}   // bbox follows the parametric shape
+    if(f.type==='stairs'){const st=getStair(f),P=stairPath(st.flights,st.turns,st.going,st.width,st.landW,st.landD);f.w=P.w;f.d=P.d;}   // bbox follows the parametric shape
     const W=f.w*PX,H=f.d*PX,sx=fx(f.cx),sy=fyR(f.cy);
     const g=el('g',{transform:`translate(${sx} ${sy}) rotate(${f.rot||0})`});
     furnSymbol(f.type,W,H,g,f);
@@ -1243,19 +1243,21 @@ function getStair(f){const going=f.going||0.9, width=f.width||f.w||3; let flight
   flights=flights.map(n=>Math.max(1,n|0));
   walls=flights.map((_,i)=>Array.isArray(walls)&&walls[i]!=null?!!walls[i]:true);   // per-flight: true = wall to floor below, false = floating
   const rise=f.rise>0?+f.rise:floorRise();   // total climb (ft); defaults floor-to-floor, set lower for grade→first-floor steps
-  return {going,width,flights,turns,walls,rise};}
+  const landW=f.landW>0?+f.landW:width, landD=f.landD>0?+f.landD:width;   // landing across (width) and along travel (depth); default = square = stair width
+  return {going,width,flights,turns,walls,rise,landW,landD};}
 // walk the flights (each a run of `n` steps) with a landing + L/R turn between them; returns centred local-feet geometry
-function stairPath(flights,turns,going,width){
+function stairPath(flights,turns,going,width,landW,landD){
+  landW=landW>0?landW:width; landD=landD>0?landD:width;
   let dir=[0,1],pos=[0,0],si=0; const runs=[],lands=[],rot=(v,t)=>t==='R'?[v[1],-v[0]]:[-v[1],v[0]];
   for(let i=0;i<flights.length;i++){const n=Math.max(1,flights[i]|0),len=n*going;
     runs.push({cx:pos[0]+dir[0]*len/2,cy:pos[1]+dir[1]*len/2,dir:dir.slice(),len,w:width,n,s0:si});
     si+=n; const end=[pos[0]+dir[0]*len,pos[1]+dir[1]*len];
-    if(i<flights.length-1){const lc=[end[0]+dir[0]*width/2,end[1]+dir[1]*width/2];
-      lands.push({cx:lc[0],cy:lc[1],w:width,s:si});
-      const nd=rot(dir,turns[i]||'L'); pos=[lc[0]+nd[0]*width/2,lc[1]+nd[1]*width/2]; dir=nd;}}
+    if(i<flights.length-1){const lc=[end[0]+dir[0]*landD/2,end[1]+dir[1]*landD/2];
+      lands.push({cx:lc[0],cy:lc[1],ex:dir[0]?landD:landW,ey:dir[1]?landD:landW,s:si});   // ex/ey = x/y extent of the landing rectangle
+      const nd=rot(dir,turns[i]||'L'); pos=[lc[0]+nd[0]*landW/2,lc[1]+nd[1]*landW/2]; dir=nd;}}
   let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9; const acc=(cx,cy,ax,ay)=>{x0=Math.min(x0,cx-ax);x1=Math.max(x1,cx+ax);y0=Math.min(y0,cy-ay);y1=Math.max(y1,cy+ay);};
   runs.forEach(r=>acc(r.cx,r.cy,Math.abs(r.dir[0])*r.len/2+Math.abs(r.dir[1])*r.w/2,Math.abs(r.dir[1])*r.len/2+Math.abs(r.dir[0])*r.w/2));
-  lands.forEach(l=>acc(l.cx,l.cy,l.w/2,l.w/2));
+  lands.forEach(l=>acc(l.cx,l.cy,l.ex/2,l.ey/2));
   const mx=(x0+x1)/2,my=(y0+y1)/2; runs.forEach(r=>{r.cx-=mx;r.cy-=my;}); lands.forEach(l=>{l.cx-=mx;l.cy-=my;});
   return {runs,lands,w:x1-x0,d:y1-y0,total:si};
 }
@@ -1293,7 +1295,7 @@ function furnSymbol(type,W,H,g,f){
     case'plant':C(0,0,Math.min(hw,hh)-1,'#8a5a3c');C(0,0,Math.min(hw,hh)*0.7,'#4f7a48');break;
     case'washer':foot('#ededed',1,2);C(0,0,Math.min(hw,hh)*0.55,'#cfd9e2');break;
     case'rug':foot(c,.2,3).setAttribute('stroke-dasharray','5 3');break;
-    case'stairs':{const st=getStair(f||{w:W/PX,d:H/PX}),P=stairPath(st.flights,st.turns,st.going,st.width),X=v=>v*PX,Y=v=>v*PX;
+    case'stairs':{const st=getStair(f||{w:W/PX,d:H/PX}),P=stairPath(st.flights,st.turns,st.going,st.width,st.landW,st.landD),X=v=>v*PX,Y=v=>v*PX;
       P.runs.forEach((r,ri)=>{const px=r.dir[0],py=r.dir[1],qx=-py,qy=px,walled=st.walls[ri];   // dir & perpendicular
         const rw=(Math.abs(px)*r.len+Math.abs(py)*r.w)*PX, rh=(Math.abs(py)*r.len+Math.abs(px)*r.w)*PX;
         const rect=R(X(r.cx)-rw/2,Y(r.cy)-rh/2,rw,rh,walled?'#e6ddcf':'#f2eee6',.95,1);          // run footprint (floating flights drawn lighter + dashed)
@@ -1303,7 +1305,7 @@ function furnSymbol(type,W,H,g,f){
         const e1x=X(r.cx+px*r.len/2),e1y=Y(r.cy+py*r.len/2);                 // up-arrow toward the ascending end
         A('line',{x1:X(r.cx-px*r.len/2),y1:Y(r.cy-py*r.len/2),x2:e1x,y2:e1y,stroke:ink,'stroke-width':1});
         L(e1x,e1y,e1x-px*4-qx*3,e1y-py*4-qy*3);L(e1x,e1y,e1x-px*4+qx*3,e1y-py*4+qy*3);});
-      P.lands.forEach(l=>R(X(l.cx)-l.w*PX/2,Y(l.cy)-l.w*PX/2,l.w*PX,l.w*PX,'#d8ccb6',.95,1));
+      P.lands.forEach(l=>R(X(l.cx)-l.ex*PX/2,Y(l.cy)-l.ey*PX/2,l.ex*PX,l.ey*PX,'#d8ccb6',.95,1));
       break;}
     default:foot(c,.6,2);
   }
@@ -1853,6 +1855,8 @@ function buildStairEditor(){
       <label style="font-size:12px;margin-left:8px">Rise</label><input class="num" id="st-rise" type="number" min="0.5" step="0.5" value="${fmt(st.rise)}" style="width:56px"> ft`+
       (plot.grade>0?` <button class="del" id="st-grade" title="Set rise to the first-floor height above grade">= grade (${fmt(plot.grade)})</button>`:'')+
       ` <button class="del" id="st-ff" title="Set rise to floor-to-floor">= floor</button></div>`+
+    (st.flights.length>1?`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:6px"><label style="font-size:12px">Landing</label><input class="num" id="st-landw" type="number" min="0.5" step="0.5" value="${fmt(st.landW)}" style="width:56px"> ft wide
+      <label style="font-size:12px;margin-left:8px">×</label><input class="num" id="st-landd" type="number" min="0.5" step="0.5" value="${fmt(st.landD)}" style="width:56px"> ft deep</div>`:'')+
     `<div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:8px"><label style="font-size:12px">Flights</label>${flights}<button class="del" id="st-add" title="Add a flight (left turn)">＋</button></div>
     <div class="hint" style="margin:6px 0 0;font-weight:700;color:${diff===0?'var(--green,#2F7D54)':'var(--red)'}">Placed ${placed} / ${need}${diff===0?' ✓':(diff>0?` — ${diff} too many`:` — ${-diff} short`)}</div></div>`;
 }
@@ -1860,6 +1864,8 @@ stairEd.addEventListener('input',e=>{const f=furniture[selectedFurn];if(!f)retur
   if(e.target.id==='st-width')f.width=Math.max(0.5,parseFloat(e.target.value)||3);
   else if(e.target.id==='st-going')f.going=Math.max(0.33,(parseFloat(e.target.value)||10.8)/12);
   else if(e.target.id==='st-rise')f.rise=Math.max(0.5,parseFloat(e.target.value)||floorRise());
+  else if(e.target.id==='st-landw')f.landW=Math.max(0.5,parseFloat(e.target.value)||f.width||3);
+  else if(e.target.id==='st-landd')f.landD=Math.max(0.5,parseFloat(e.target.value)||f.width||3);
   else if(e.target.dataset.stf!=null)f.flights[+e.target.dataset.stf]=Math.max(1,parseInt(e.target.value)||1);
   else return;
   renderPlan();scheduleSave();});   // note: no editor rebuild here, so the field keeps focus while typing
@@ -2054,7 +2060,8 @@ function applyData(d){
       if(Array.isArray(f.flights)&&f.flights.length)o.flights=f.flights.map(n=>Math.max(1,n|0));
       if(Array.isArray(f.turns))o.turns=f.turns.map(t=>t==='R'?'R':'L');
       if(Array.isArray(f.walls))o.walls=f.walls.map(w=>!!w);
-      if(+f.rise>0)o.rise=+f.rise;}
+      if(+f.rise>0)o.rise=+f.rise;
+      if(+f.landW>0)o.landW=+f.landW; if(+f.landD>0)o.landD=+f.landD;}
     return o;}):[];
   dims=Array.isArray(d.dims)?d.dims.filter(m=>m&&Array.isArray(m.a)&&Array.isArray(m.b)).map(m=>({a:[+m.a[0]||0,+m.a[1]||0],b:[+m.b[0]||0,+m.b[1]||0]})):[];
   selected=null;selectedOpening=null;selectedFurn=null;dimArmed=false;dimA=null;
@@ -2154,7 +2161,7 @@ function exportJSON(){
     iwallsFenceFoot:iwalls.map(w=>!!w.foot),
     rooms:rooms.map(r=>{const o={name:r.name,desired:r.desired,x:r.x,y:r.y,w:r.w,h:r.h,color:r.color,open:!!r.open,grade:!!r.grade};if(r.poly)o.poly=r.poly.map(p=>[p[0],p[1]]);return o;}),
     openings:openings.map(o=>({type:o.type,orient:o.orient,x:o.x,y:o.y,len:o.len,flip:!!o.flip,hinge:!!o.hinge,...(o.grade?{grade:true}:{})})),
-    furniture:furniture.map(f=>({type:f.type,cx:f.cx,cy:f.cy,w:f.w,d:f.d,rot:f.rot||0,...(f.type==='stairs'?{width:f.width,going:f.going,flights:f.flights,turns:f.turns,walls:f.walls,...(f.rise>0?{rise:f.rise}:{})}:{})})),
+    furniture:furniture.map(f=>({type:f.type,cx:f.cx,cy:f.cy,w:f.w,d:f.d,rot:f.rot||0,...(f.type==='stairs'?{width:f.width,going:f.going,flights:f.flights,turns:f.turns,walls:f.walls,...(f.rise>0?{rise:f.rise}:{}),...(f.landW>0?{landW:f.landW}:{}),...(f.landD>0?{landD:f.landD}:{})}:{})})),
     dims:dims.map(m=>({a:[m.a[0],m.a[1]],b:[m.b[0],m.b[1]]}))};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
   const url=URL.createObjectURL(blob);const a=document.createElement('a');

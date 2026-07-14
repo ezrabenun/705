@@ -149,17 +149,18 @@ function washer(g,x,z){bx(g,2.2,3,2.2,F.white,x,0,z);const dr=new THREE.Mesh(new
 
 // build one furniture piece (centred at origin) sized by footprint w×d
 // walk the flights (each a run of `n` steps) with a landing + L/R turn between; returns centred local-feet geometry
-function stairPath(flights,turns,going,width){
+function stairPath(flights,turns,going,width,landW,landD){
+  landW=landW>0?landW:width; landD=landD>0?landD:width;
   let dir=[0,1],pos=[0,0],si=0; const runs=[],lands=[],rot=(v,t)=>t==='R'?[v[1],-v[0]]:[-v[1],v[0]];
   for(let i=0;i<flights.length;i++){const n=Math.max(1,flights[i]|0),len=n*going;
     runs.push({cx:pos[0]+dir[0]*len/2,cy:pos[1]+dir[1]*len/2,dir:dir.slice(),len,w:width,n,s0:si});
     si+=n; const end=[pos[0]+dir[0]*len,pos[1]+dir[1]*len];
-    if(i<flights.length-1){const lc=[end[0]+dir[0]*width/2,end[1]+dir[1]*width/2];
-      lands.push({cx:lc[0],cy:lc[1],w:width,s:si});
-      const nd=rot(dir,turns[i]||'L'); pos=[lc[0]+nd[0]*width/2,lc[1]+nd[1]*width/2]; dir=nd;}}
+    if(i<flights.length-1){const lc=[end[0]+dir[0]*landD/2,end[1]+dir[1]*landD/2];
+      lands.push({cx:lc[0],cy:lc[1],w:width,ex:dir[0]?landD:landW,ey:dir[1]?landD:landW,s:si});
+      const nd=rot(dir,turns[i]||'L'); pos=[lc[0]+nd[0]*landW/2,lc[1]+nd[1]*landW/2]; dir=nd;}}
   let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9; const acc=(cx,cy,ax,ay)=>{x0=Math.min(x0,cx-ax);x1=Math.max(x1,cx+ax);y0=Math.min(y0,cy-ay);y1=Math.max(y1,cy+ay);};
   runs.forEach(r=>acc(r.cx,r.cy,Math.abs(r.dir[0])*r.len/2+Math.abs(r.dir[1])*r.w/2,Math.abs(r.dir[1])*r.len/2+Math.abs(r.dir[0])*r.w/2));
-  lands.forEach(l=>acc(l.cx,l.cy,l.w/2,l.w/2));
+  lands.forEach(l=>acc(l.cx,l.cy,l.ex/2,l.ey/2));
   const mx=(x0+x1)/2,my=(y0+y1)/2; runs.forEach(r=>{r.cx-=mx;r.cy-=my;}); lands.forEach(l=>{l.cx-=mx;l.cy-=my;});
   return {runs,lands,w:x1-x0,d:y1-y0,total:si};
 }
@@ -191,14 +192,15 @@ function buildPiece(type,w,d,f,rise){const g=new THREE.Group();
     case"rug":{const r=new THREE.Mesh(new THREE.BoxGeometry(w,0.05,d),M(0xb1493f,{roughness:1}));r.position.y=0.03;r.receiveShadow=true;g.add(r);break;}
     case"stairs":{const going=(f&&f.going)||0.9,width=(f&&f.width)||w||3;
       let flights=f&&f.flights; if(!Array.isArray(flights)||!flights.length)flights=[Math.max(1,Math.round((d||10)/going))];
-      const turns=(f&&f.turns)||[],walls=(f&&f.walls)||[],P=stairPath(flights,turns,going,width),wd=M(F.woodD,{roughness:.85}),R2=(f&&+f.rise>0)?+f.rise:(rise||CEIL),total=P.total||1;
+      const landW=(f&&+f.landW>0)?+f.landW:width, landD=(f&&+f.landD>0)?+f.landD:width;
+      const turns=(f&&f.turns)||[],walls=(f&&f.walls)||[],P=stairPath(flights,turns,going,width,landW,landD),wd=M(F.woodD,{roughness:.85}),R2=(f&&+f.rise>0)?+f.rise:(rise||CEIL),total=P.total||1;
       P.runs.forEach((r,ri)=>{const px=r.dir[0],py=r.dir[1],walled=walls[ri]!==false;   // walled = wall to floor below (solid); floating = thin treads
         for(let k=0;k<r.n;k++){const h=(r.s0+k+1)/total*R2,t=((k+0.5)/r.n-0.5)*r.len,cx=r.cx+px*t,cz=r.cy+py*t;
           const xe=Math.abs(px)*(r.len/r.n)+Math.abs(py)*r.w, ze=Math.abs(py)*(r.len/r.n)+Math.abs(px)*r.w;
           if(walled) bx(g,xe,h,ze,wd,cx,0,cz);                       // solid down to the floor
           else       bx(g,xe,0.45,ze,wd,cx,h-0.45,cz);}});           // floating tread only (open underneath)
       P.lands.forEach((l,li)=>{const walled=walls[li]!==false; const h=l.s/total*R2;
-        if(walled) bx(g,l.w,h,l.w,wd,l.cx,0,l.cy); else bx(g,l.w,0.45,l.w,wd,l.cx,h-0.45,l.cy);});
+        if(walled) bx(g,l.ex,h,l.ey,wd,l.cx,0,l.cy); else bx(g,l.ex,0.45,l.ey,wd,l.cx,h-0.45,l.cy);});
       break;}
     default:bx(g,w,2,d,0x9aa0a8,0,0,0);
   }
