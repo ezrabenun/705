@@ -401,6 +401,7 @@ let dims=[];                                  // manual dimension lines: {a:[x,y
 let dimArmed=false, dimA=null;                // dimension tool: armed for first/second click
 let selectedDim=null;                         // index of the dimension selected for endpoint dragging
 let drawWall=null;                            // in-progress polyline while drawing a new wall (array of pts) or null
+let quickWall=false;                          // "Wall from here" mode: the next single click sets the endpoint and finishes a straight one-segment wall
 // furniture: {type, cx, cy (centre, ft), w, d (footprint ft), rot (0/90/180/270)}
 let furniture=[];
 let furnDefaults={};       // per-type default dimension overrides: {type:{w,d}} — used on Place & "reset to default"
@@ -782,6 +783,12 @@ function editWallAt(px,py){const hit=wallHitType(px,py,0.8);
   if(hit==='iwall'){drawWall=null;editOutline=false;editWalls=true;selectedWall=nearestIWall(px,py,0.8);buildWallsPanel();buildFramePanel();renderPlan();return true;}
   if(hit==='outline'){drawWall=null;editWalls=false;editOutline=true;buildFramePanel();buildWallsPanel();renderPlan();return true;}
   return false;}
+// commit the wall being drawn to iwalls (dropping any coincident trailing points), then leave draw mode
+function finishWall(){
+  if(!drawWall)return;
+  while(drawWall.length>=2&&Math.abs(drawWall[drawWall.length-1][0]-drawWall[drawWall.length-2][0])<1e-6&&Math.abs(drawWall[drawWall.length-1][1]-drawWall[drawWall.length-2][1])<1e-6)drawWall.pop();
+  if(drawWall.length>=2)iwalls.push(drawWall);
+  drawWall=null;quickWall=false;renderPlan();buildWallsPanel();scheduleSave();}
 
 /* ---------- tabs ---------- */
 const TABS=['rooms','openings','furniture','frame','plot','walls','dims'];
@@ -862,7 +869,7 @@ function buildWallsPanel(){
     <button class="btn ghost" id="editwallbtn" style="margin-left:8px;${editWalls?'background:var(--blue);color:#fff':''}">${editWalls?'✓ Editing walls':'Edit walls'}</button>
     <button class="btn ghost" id="tidywallbtn" style="margin-left:8px" title="Merge doubled walls and connect ends that stop short">⤾ Tidy walls</button>
     <span style="margin-left:10px;font-size:.82rem;color:var(--ink-soft)">Walls: ${iwalls.length}</span>`;
-  document.getElementById('drawwallbtn').onclick=()=>{drawWall=drawWall?null:[];if(drawWall){editWalls=false;selectedWall=null;}buildWallsPanel();renderPlan();};
+  document.getElementById('drawwallbtn').onclick=()=>{drawWall=drawWall?null:[];quickWall=false;if(drawWall){editWalls=false;selectedWall=null;}buildWallsPanel();renderPlan();};
   document.getElementById('editwallbtn').onclick=()=>{editWalls=!editWalls;if(editWalls)drawWall=null;else selectedWall=null;buildWallsPanel();renderPlan();};
   document.getElementById('tidywallbtn').onclick=()=>{const n0=iwalls.length;iwalls=cleanWalls(iwalls);buildWallsPanel();renderPlan();scheduleSave();ioStatus('Tidied walls: '+n0+' → '+iwalls.length);};
 }
@@ -1494,7 +1501,9 @@ svg.addEventListener('pointerdown',e=>{
   }
   if(drawWall){                                     // drawing a new interior wall — each click drops a point
     const p=feetFromEvent(e),ref=drawWall[drawWall.length-1]||null;
-    drawWall.push(snapWallPoint(p.x,p.r,ref,e.altKey));renderPlan();e.preventDefault();return;
+    drawWall.push(snapWallPoint(p.x,p.r,ref,e.altKey));
+    if(quickWall&&drawWall.length>=2){finishWall();e.preventDefault();return;}   // "Wall from here": one click sets the end → done
+    renderPlan();e.preventDefault();return;
   }
   if(dimArmed){                                     // dimension tool: click point A, then point B
     const p=feetFromEvent(e),pt=snapDimPoint(p.x,p.r);
@@ -1580,6 +1589,10 @@ svg.addEventListener('pointerdown',e=>{
   const ri=t.getAttribute('data-room');
   if(ri!=null){
     const idx=+ri,corner=t.getAttribute('data-corner');
+    if(!corner){                                    // a click near a wall selects the wall, not the room beneath it
+      const f=feetFromEvent(e);                     // (walls otherwise lose every click to the room fill covering them)
+      if(editWallAt(f.x,f.r)){try{svg.setPointerCapture(e.pointerId);}catch(_){}e.preventDefault();return;}
+    }
     if(selectedOpening!=null||selectedFurn!=null){selectedOpening=null;selectedFurn=null;}  // selecting a room clears other selections
     if(corner){                                     // resize handle (only rendered on the selected room)
       const p=feetFromEvent(e);
@@ -1718,9 +1731,7 @@ svg.addEventListener('pointerup',endPointer);
 svg.addEventListener('pointercancel',endPointer);
 svg.addEventListener('dblclick',e=>{
   if(drawWall){                                       // finish the wall being drawn
-    while(drawWall.length>=2&&Math.abs(drawWall[drawWall.length-1][0]-drawWall[drawWall.length-2][0])<1e-6&&Math.abs(drawWall[drawWall.length-1][1]-drawWall[drawWall.length-2][1])<1e-6)drawWall.pop();
-    if(drawWall.length>=2)iwalls.push(drawWall);
-    drawWall=null;renderPlan();buildWallsPanel();scheduleSave();e.preventDefault();return;
+    finishWall();e.preventDefault();return;
   }
   const fp=e.target.getAttribute&&e.target.getAttribute('data-fpt');   // dbl-click a corner while editing → delete it
   if(editOutline&&fp!=null&&footprint.length>3){footprint.splice(+fp,1);renderPlan();buildFramePanel();scheduleSave();e.preventDefault();return;}
@@ -1753,7 +1764,7 @@ document.addEventListener('keydown',e=>{
   }
   if(e.key!=='Escape')return;
   if(dimArmed){dimArmed=false;dimA=null;buildDimsPanel();renderPlan();}
-  else if(drawWall){drawWall=null;buildWallsPanel();renderPlan();}
+  else if(drawWall){drawWall=null;quickWall=false;buildWallsPanel();renderPlan();}
   else if(placeTool||placeFurn){placeTool=null;placeFurn=null;updateToolButtons();}
   else if(selectedFurn!=null){selectedFurn=null;renderPlan();}
   else if(selectedOpening!=null){selectedOpening=null;renderPlan();}
@@ -2057,7 +2068,7 @@ ctxEl.addEventListener('click',e=>{
       if(poly){const bb=polyBBox(poly);nr.poly=poly;nr.x=bb.x;nr.y=bb.y;nr.w=bb.w;nr.h=bb.h;nr.desired=Math.max(1,Math.round(Math.abs(polyArea(poly))));}
       else{nr.x=snap(feet.x-6);nr.y=snap(feet.r-5);nr.w=12;nr.h=10;nr.desired=120;}
       rooms.push(nr);selected=rooms.length-1;selectedOpening=null;selectedFurn=null;renderList();renderPlan();scheduleSave();break;}
-    case'wallstart':drawWall=[wallStartPoint(feet.x,feet.r)];editWalls=false;editOutline=false;buildWallsPanel();renderPlan();break;
+    case'wallstart':drawWall=[wallStartPoint(feet.x,feet.r)];quickWall=true;editWalls=false;editOutline=false;buildWallsPanel();renderPlan();ioStatus('Click the wall’s far end to finish');break;
     case'adddim':dimArmed=true;dimA=snapDimPoint(feet.x,feet.r);buildDimsPanel();renderPlan();break;
     case'dimdel2':if(ctx.dim!=null){dims.splice(ctx.dim,1);selectedDim=null;buildDimsPanel();renderPlan();scheduleSave();}break;
     case'wedit':if(ctx.iwall!=null){editWalls=true;editOutline=false;drawWall=null;selectedWall=ctx.iwall;buildWallsPanel();renderPlan();}break;
