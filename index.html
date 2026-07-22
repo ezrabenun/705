@@ -303,6 +303,7 @@ const SVGNS="http://www.w3.org/2000/svg";
 const svg=document.getElementById('plan');
 const PX=10, M_LEFT=92, M_TOP=78, M_RIGHT=40, M_BOT=58;
 const DOOR_OPEN=0.5;                           // doors are drawn open this fraction of a full 90° swing (0.5 = 45°)
+const POCKET_OPEN=0.75;                         // pocket doors are drawn slid this fraction into the wall (0.75 = mostly open)
 const NAME=["A","B","C","D","E","F","G","H"];
 const FILL=["#DCE6EC","#E6E1D8","#EBD9CE","#DEE7E0","#E6DCEA","#E0E8E6","#ECE3D2","#DDE2EC"];
 const RC=["#7E8A97","#8F8792","#7C8B7E","#A08F7C","#9B8288","#7C8D91","#93826F","#83879A"];   // muted, low-saturation room tones
@@ -325,7 +326,7 @@ const FURN={
   counter:{lbl:"Counter",w:6,d:2,c:"#e6e3dd"},
   island:{lbl:"Island",w:6,d:3,c:"#e6e3dd"},
   tallcabinet:{lbl:"Tall cabinet",w:3,d:2,c:"#e6e3dd"},   // like a counter but full-height
-  fridge:{lbl:"Fridge",w:3,d:3,c:"#9aa0a8"},
+  fridge:{lbl:"Fridge",w:3,d:2,c:"#9aa0a8"},
   stove:{lbl:"Stove / Range",w:2.6,d:2.4,c:"#ededed"},
   doubleoven:{lbl:"Double oven",w:2.6,d:2.4,c:"#c3c8ce"},
   sink:{lbl:"Sink / Vanity",w:3,d:1.8,c:"#e6e3dd"},
@@ -1177,15 +1178,18 @@ function drawOpenings(){
       jamb(ax,ay);jamb(bx,by);
     }else if(o.type==='doorway'){
       jamb(ax,ay);jamb(bx,by);
-    }else if(o.type==='pocket'){                     // pocket door — slides into the wall: open gap + leaf tucked in the pocket
+    }else if(o.type==='pocket'){                     // pocket door — slides into the wall, drawn POCKET_OPEN of the way open
       jamb(ax,ay);jamb(bx,by);
-      const lt=Math.max(1.2,hd*0.55), R=Math.abs(o.len*PX), atB=!!o.hinge;   // atB = which jamb the leaf slides past into the wall
-      if(horiz){const jx=atB?bx:ax, dir=atB?1:-1;
-        svg.appendChild(el('rect',{x:Math.min(jx,jx+dir*R),y:ay-lt,width:R,height:2*lt,fill:'var(--paper)',stroke:'var(--ink-soft)','stroke-width':1,'stroke-dasharray':'3 2'}));   // panel recessed in the wall cavity
-        svg.appendChild(el('line',{x1:jx,y1:ay-lt,x2:jx,y2:ay+lt,stroke:'var(--ink)','stroke-width':1.5}));   // leaf leading edge, at the pocket mouth
+      const lt=Math.max(1.2,hd*0.55), R=Math.abs(o.len*PX), atB=!!o.hinge;   // atB = which jamb is the pocket mouth
+      const vis=R*(1-POCKET_OPEN), rec=R*POCKET_OPEN;                        // leaf still spanning the opening / part tucked in the wall
+      if(horiz){const jx=atB?bx:ax, dir=atB?1:-1;                           // dir points into the wall (away from the opening)
+        svg.appendChild(el('rect',{x:Math.min(jx,jx+dir*rec),y:ay-lt,width:rec,height:2*lt,fill:'var(--paper)',stroke:'var(--ink-soft)','stroke-width':1,'stroke-dasharray':'3 2'}));   // half tucked in the wall cavity
+        svg.appendChild(el('rect',{x:Math.min(jx,jx-dir*vis),y:ay-lt,width:vis,height:2*lt,fill:'var(--paper)',stroke:'var(--ink)','stroke-width':1.5}));   // half still spanning the opening
+        svg.appendChild(el('line',{x1:jx-dir*vis,y1:ay-lt,x2:jx-dir*vis,y2:ay+lt,stroke:'var(--ink)','stroke-width':1.5}));   // leaf leading edge
       }else{const jy=atB?by:ay, dir=atB?1:-1;
-        svg.appendChild(el('rect',{x:ax-lt,y:Math.min(jy,jy+dir*R),width:2*lt,height:R,fill:'var(--paper)',stroke:'var(--ink-soft)','stroke-width':1,'stroke-dasharray':'3 2'}));
-        svg.appendChild(el('line',{x1:ax-lt,y1:jy,x2:ax+lt,y2:jy,stroke:'var(--ink)','stroke-width':1.5}));}
+        svg.appendChild(el('rect',{x:ax-lt,y:Math.min(jy,jy+dir*rec),width:2*lt,height:rec,fill:'var(--paper)',stroke:'var(--ink-soft)','stroke-width':1,'stroke-dasharray':'3 2'}));
+        svg.appendChild(el('rect',{x:ax-lt,y:Math.min(jy,jy-dir*vis),width:2*lt,height:vis,fill:'var(--paper)',stroke:'var(--ink)','stroke-width':1.5}));
+        svg.appendChild(el('line',{x1:ax-lt,y1:jy-dir*vis,x2:ax+lt,y2:jy-dir*vis,stroke:'var(--ink)','stroke-width':1.5}));}
     }else if(o.type==='garage'){                    // garage door — wide gap, closed face + panel divisions
       jamb(ax,ay);jamb(bx,by);
       svg.appendChild(el('line',{x1:ax,y1:ay,x2:bx,y2:by,stroke:'var(--ink)','stroke-width':1.5}));

@@ -68,7 +68,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { WebGLPathTracer, GradientEquirectTexture } from 'three-gpu-pathtracer';
 
 const SRGB=THREE.SRGBColorSpace;
-const CEIL=10, SLAB=0.35, FT=SLAB+0.02, DOOR_OPEN=0.5;
+const CEIL=10, SLAB=0.35, FT=SLAB+0.02, DOOR_OPEN=0.5, POCKET_OPEN=0.75;
 
 /* ---------- load the live layout (stashed by the 2D editor) ---------- */
 function fromLocal(){try{const s=localStorage.getItem('layout3d')||localStorage.getItem('savedLayout');
@@ -243,6 +243,10 @@ function build(L){
       grp.add(box(o.len,6.7,0.16,MAT.sage,o.len/2,FT,0));grp.add(box(0.12,0.12,0.12,MAT.brass,o.len*0.85,FT+3.2,0.12));world.add(grp);};
     if(o.orient==='h'){const hx=o.hinge?o.x+o.len:o.x,sx=o.hinge?o.x:o.x+o.len;leaf(hx-CX,CZ-o.y,Math.sign(sx-hx),0,0,s);}
     else{const hy=o.hinge?o.y+o.len:o.y,sy=o.hinge?o.y:o.y+o.len;leaf(o.x-CX,CZ-hy,0,Math.sign(hy-sy),s,0);}});
+  // pocket doors (slid POCKET_OPEN into the wall — leaf sits in the wall plane, half spanning the opening)
+  openings.forEach(o=>{if(o.type!=='pocket')return;const vis=o.len*(1-POCKET_OPEN),atB=!!o.hinge;
+    if(o.orient==='h'){const cx=atB?(o.x+o.len-vis/2):(o.x+vis/2);world.add(box(vis,6.7,0.16,MAT.sage,cx-CX,FT,CZ-o.y));}
+    else{const cy=atB?(o.y+o.len-vis/2):(o.y+vis/2);world.add(box(0.16,6.7,vis,MAT.sage,o.x-CX,FT,CZ-cy));}});
 
   /* ---------- auto-furnishing ---------- */
   const place=(g,cx,cy,rot)=>{g.position.set(cx-CX,FT,CZ-cy);if(rot)g.rotation.y=rot;world.add(g);furnGroups.push(g);};

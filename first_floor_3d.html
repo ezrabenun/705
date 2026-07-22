@@ -91,6 +91,7 @@ async function loadLayout(){
 
 const CEIL=10, SLAB=0.35, FT=SLAB+0.02;
 const DOOR_OPEN=0.5;   // door leaves are shown open this fraction of a full 90° swing (0.5 = 45°)
+const POCKET_OPEN=0.75; // pocket doors are shown slid this fraction into the wall (0.75 = mostly open)
 
 /* ---------- scene ---------- */
 const app=document.getElementById('app');
@@ -432,6 +433,12 @@ function build(L){
       leaf(hx-CX,CZ-o.y,Math.sign(sx-hx),0,0,s);}                   // closed along the wall (x), open perpendicular (z; flipped)
     else{const hy=o.hinge?o.y+o.len:o.y, sy=o.hinge?o.y:o.y+o.len;
       leaf(o.x-CX,CZ-hy,0,Math.sign(hy-sy),s,0);} });               // closed along the wall (z), open perpendicular (x)
+
+  // ---- pocket doors (slide into the wall — shown POCKET_OPEN open, leaf sits in the wall plane) ----
+  openings.forEach(o=>{ if(o.type!=='pocket')return; const mat=M(0xf2efe9,{roughness:.7}),by=o.grade?-gradeH:FT;
+    const vis=o.len*(1-POCKET_OPEN), atB=!!o.hinge;                 // vis = leaf still spanning the opening; atB = pocket mouth jamb
+    if(o.orient==='h'){const cx=atB?(o.x+o.len-vis/2):(o.x+vis/2); world.add(box(vis,6.7,0.16,mat,cx-CX,by,CZ-o.y));}
+    else{const cy=atB?(o.y+o.len-vis/2):(o.y+vis/2); world.add(box(0.16,6.7,vis,mat,o.x-CX,by,CZ-cy));} });
 
   // ---- garage doors (shown OPEN — the panel is rolled up under the ceiling, opening clear below) ----
   openings.forEach(o=>{ if(o.type!=='garage')return; const mat=M(0xd0d5db,{roughness:.5}),ph=0.9,py=CEIL-ph;
