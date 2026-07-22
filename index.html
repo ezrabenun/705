@@ -1266,8 +1266,8 @@ function stairPath(flights,turns,going,width,landWs,landDs){
       lands.push({cx:lcx,cy:lcy,ex:dir[0]?landD:landW,ey:dir[1]?landD:landW,s:si});   // ex/ey = x/y extent of the landing rectangle
       if(t[0]==='U'){   // 180° switchback (UL = wind left, UR = wind right): next flight runs back parallel, hugging the opposite lateral edge of the landing
         pos=[end[0]-ox*(landW-width), end[1]-oy*(landW-width)];
-      }else{            // 90° turn: next flight leaves from the outer corner of the landing (attached to the side, not the middle)
-        pos=[end[0]+dir[0]*(landD-width/2)+ox*(width/2), end[1]+dir[1]*(landD-width/2)+oy*(width/2)];}
+      }else{            // 90° turn: next flight leaves from the landing's inner edge (opposite the outer edge the flights hug) so it extends away from the landing, not back across it
+        pos=[end[0]+dir[0]*(landD-width/2)+ox*(width/2-landW), end[1]+dir[1]*(landD-width/2)+oy*(width/2-landW)];}
       dir=rot(dir,t);}}
   let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9; const acc=(cx,cy,ax,ay)=>{x0=Math.min(x0,cx-ax);x1=Math.max(x1,cx+ax);y0=Math.min(y0,cy-ay);y1=Math.max(y1,cy+ay);};
   runs.forEach(r=>acc(r.cx,r.cy,Math.abs(r.dir[0])*r.len/2+Math.abs(r.dir[1])*r.w/2,Math.abs(r.dir[1])*r.len/2+Math.abs(r.dir[0])*r.w/2));
