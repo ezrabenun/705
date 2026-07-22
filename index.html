@@ -6,6 +6,7 @@
 <!-- This is a light "blueprint paper" design; opt out of the browser's forced/auto dark mode
      so exterior walls and other dark strokes stay visible. -->
 <meta name="color-scheme" content="light">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Crect%20width='24'%20height='24'%20rx='4'%20fill='%23EDEAE3'/%3E%3Cg%20fill='none'%20stroke='%232b3440'%20stroke-width='1.6'%3E%3Crect%20x='4'%20y='4'%20width='16'%20height='16'%20rx='1'/%3E%3Cpath%20d='M13%204V20M4%2012H13'/%3E%3C/g%3E%3Cpath%20d='M13%2015a4%204%200%200%201%204%204'%20fill='none'%20stroke='%238a6440'%20stroke-width='1.4'/%3E%3C/svg%3E">
 <title>First Floor — Plan</title>
 <style>
   :root{
@@ -30,8 +31,8 @@
     transform-origin:0 0;}
   #plan *{pointer-events:none;}
   #plan [data-room]{pointer-events:all;cursor:pointer;}
-  #plan [data-room].selected{cursor:move;}
   #plan rect[data-corner]{pointer-events:all;cursor:nwse-resize;}
+  #plan [data-room-move]{pointer-events:all;cursor:move;}
   #plan [data-open]{pointer-events:all;cursor:pointer;}
   #plan [data-open].osel{cursor:move;}
   #plan [data-ohandle]{pointer-events:all;cursor:crosshair;}
@@ -115,6 +116,8 @@
   .badge{font-family:var(--mono);font-size:12px;font-weight:700;}
   .del{border:none;background:none;color:var(--ink-soft);cursor:pointer;font-size:15px;line-height:1;padding:2px 4px;}
   .del:hover{color:var(--red);}
+  label.dimstraight{font-family:var(--mono);font-size:10px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-soft);cursor:pointer;margin-right:6px;user-select:none;}
+  label.dimstraight input{margin:0 3px 0 0;vertical-align:middle;cursor:pointer;}
   .empty{font-family:var(--mono);font-size:12px;color:var(--ink-soft);padding:14px 4px;}
   .summary{font-family:var(--mono);font-size:12px;color:var(--ink);margin-top:12px;
     border-top:1px dashed var(--line);padding-top:10px;display:flex;gap:18px;flex-wrap:wrap;}
@@ -203,6 +206,7 @@
     <div class="addrow">
       <button class="btn ghost tool" id="tool-door">＋ Door</button>
       <button class="btn ghost tool" id="tool-doorway">＋ Doorway</button>
+      <button class="btn ghost tool" id="tool-pocket">＋ Pocket door</button>
       <button class="btn ghost tool" id="tool-window">＋ Window</button>
       <button class="btn ghost tool" id="tool-garage">＋ Garage door</button>
       <span class="hint" id="openhint">Tip: <b>right-click</b> (or <b>press &amp; hold</b> on touch) the plan to add or edit doors/windows right where you tap. Or pick a tool here and click a wall. Tap a placed item to move it (snaps to walls) or drag an end dot to resize.</span>
@@ -221,6 +225,8 @@
       <div class="grp"><label for="furnsel">Furniture</label>
         <select class="verlist" id="furnsel" style="max-width:200px"></select></div>
       <button class="btn tool" id="furn-place">＋ Place</button>
+      <div class="grp"><label for="furndefw">Default W</label><input class="num" id="furndefw" type="number" min="0.5" step="0.5" style="width:58px"></div>
+      <div class="grp"><label for="furndefd">Default D</label><input class="num" id="furndefd" type="number" min="0.5" step="0.5" style="width:58px"></div>
       <span class="hint" id="furnhint">Tip: <b>right-click</b> (or <b>press &amp; hold</b> on touch) the plan to add furniture (or rotate/delete a piece) right where you tap. Or pick a piece here and hit Place. Tap a piece to move it, drag an edge handle to resize that side, ↻ to rotate; or edit its size below.</span>
     </div>
     <div id="stairedit" style="display:none;margin-bottom:12px"></div>
@@ -274,7 +280,7 @@
   <div class="pane" id="pane-dims">
     <div class="addrow">
       <button class="btn tool" id="adddimbtn">＋ Add dimension</button>
-      <span class="hint" id="dimhint">Click <b>Add dimension</b>, then click two points on the plan. Each point snaps to a wall face (inside/outside), a corner, or the lot line. The distance is labelled. <b>Esc</b> cancels.</span>
+      <span class="hint" id="dimhint">Click <b>Add dimension</b>, then click two points on the plan. Each point snaps to a wall face (inside/outside), a corner, or the lot line. The distance is labelled. New dimensions stay <b>straight</b> (horizontal/vertical) — uncheck <b>straight</b> in the list to let one go diagonal. <b>Esc</b> cancels.</span>
     </div>
     <table class="rooms" id="dimtable">
       <thead><tr><th class="l">Dimension</th><th>Length</th><th></th></tr></thead>
@@ -295,9 +301,10 @@
 const SVGNS="http://www.w3.org/2000/svg";
 const svg=document.getElementById('plan');
 const PX=10, M_LEFT=92, M_TOP=78, M_RIGHT=40, M_BOT=58;
+const DOOR_OPEN=0.5;                           // doors are drawn open this fraction of a full 90° swing (0.5 = 45°)
 const NAME=["A","B","C","D","E","F","G","H"];
 const FILL=["#DCE6EC","#E6E1D8","#EBD9CE","#DEE7E0","#E6DCEA","#E0E8E6","#ECE3D2","#DDE2EC"];
-const RC=["#2C5C8A","#7A4E8C","#2F7D54","#B2792A","#A23A5B","#3A7E8C","#8A5A2C","#4A5A8A"];
+const RC=["#7E8A97","#8F8792","#7C8B7E","#A08F7C","#9B8288","#7C8D91","#93826F","#83879A"];   // muted, low-saturation room tones
 
 // Furniture catalog — shared with the 3D view. w = width (x), d = depth (y) in feet; c = 2D fill.
 const FURN={
@@ -309,13 +316,17 @@ const FURN={
   desk:{lbl:"Desk",w:5,d:2.5,c:"#8a6440"},
   chair:{lbl:"Chair",w:1.6,d:1.6,c:"#b98b5e"},
   stool:{lbl:"Stool",w:1.2,d:1.2,c:"#5f4228"},
-  bed:{lbl:"Bed",w:5,d:6.7,c:"#d6dade"},
+  bedtwin:{lbl:"Bed (Twin)",w:3.2,d:6.25,c:"#d6dade"},     // 38" × 75" mattress
+  bed:{lbl:"Bed (Queen)",w:5,d:6.7,c:"#d6dade"},            // 60" × 80" (kept as `bed` so old layouts still load)
+  bedking:{lbl:"Bed (King)",w:6.33,d:6.7,c:"#d6dade"},      // 76" × 80"
   nightstand:{lbl:"Nightstand",w:1.6,d:1.6,c:"#6f5842"},
   dresser:{lbl:"Dresser",w:4,d:1.8,c:"#6f5842"},
   counter:{lbl:"Counter",w:6,d:2,c:"#e6e3dd"},
   island:{lbl:"Island",w:6,d:3,c:"#e6e3dd"},
+  tallcabinet:{lbl:"Tall cabinet",w:3,d:2,c:"#e6e3dd"},   // like a counter but full-height
   fridge:{lbl:"Fridge",w:3,d:3,c:"#9aa0a8"},
   stove:{lbl:"Stove / Range",w:2.6,d:2.4,c:"#ededed"},
+  doubleoven:{lbl:"Double oven",w:2.6,d:2.4,c:"#c3c8ce"},
   sink:{lbl:"Sink / Vanity",w:3,d:1.8,c:"#e6e3dd"},
   toilet:{lbl:"Toilet",w:1.8,d:2.5,c:"#ededed"},
   tub:{lbl:"Bathtub",w:5,d:2.5,c:"#ededed"},
@@ -324,13 +335,15 @@ const FURN={
   tv:{lbl:"TV / Media",w:5,d:1.4,c:"#24282e"},
   plant:{lbl:"Plant",w:1.6,d:1.6,c:"#4f7a48"},
   washer:{lbl:"Washer / Dryer",w:2.4,d:2.2,c:"#ededed"},
+  boiler:{lbl:"Boiler",w:2.2,d:2,c:"#b4b9c0"},
+  waterheater:{lbl:"Hot water heater",w:2,d:2,c:"#cfd3d8"},
   rug:{lbl:"Rug",w:8,d:6,c:"#b1493f"},
   bicycles:{lbl:"Bicycles",w:6,d:6,c:"#3a7ca5"},   // width sets how many bikes fit (~2 ft each)
   stairs:{lbl:"Stairs",w:3,d:10,c:"#c9b79c"},
 };
 const BIKE_LEN=5.8, BIKE_SLOT=2;   // one bicycle: ~5.8 ft long, parked in a ~2 ft-wide slot
 const bikeCount=w=>Math.max(1,Math.round(w/BIKE_SLOT));
-const FURN_ORDER=["sofa","loveseat","armchair","diningtable","table","desk","chair","stool","bed","nightstand","dresser","counter","island","fridge","stove","sink","toilet","tub","shower","bookshelf","tv","plant","washer","rug","bicycles","stairs"];
+const FURN_ORDER=["sofa","loveseat","armchair","diningtable","table","desk","chair","stool","bedtwin","bed","bedking","nightstand","dresser","counter","island","tallcabinet","fridge","stove","doubleoven","sink","toilet","tub","shower","bookshelf","tv","plant","washer","boiler","waterheater","rug","bicycles","stairs"];
 
 let wings=[
   {w:20.8,d:50,s:0},
@@ -341,36 +354,36 @@ let wings=[
 ];
 // rooms: x = ft from left, y = ft from FRONT(bottom), w wide, h deep
 let rooms=[
-  {name:"Kitchen", desired:400, x:53.5, y:34, w:21.5, h:16, color:"#2C5C8A"},
-  {name:"Dining", desired:300, x:21, y:22, w:21, h:16, color:"#7A4E8C", open:true},
-  {name:"Living", desired:320, x:21, y:0, w:21, h:17.5, color:"#2F7D54", open:true},
-  {name:"Dinette", desired:156, x:53.5, y:22, w:13, h:12, color:"#B2792A"},
-  {name:"Den", desired:225, x:0, y:34, w:21, h:16, color:"#A23A5B"},
-  {name:"Full Bath", desired:48, x:12.5, y:12.5, w:5.5, h:7, color:"#3A7E8C"},
-  {name:"1/2 Bath", desired:27, x:66.5, y:17.5, w:8.5, h:4.5, color:"#8A5A2C"},
-  {name:"Library", desired:156, x:53.5, y:7.5, w:9, h:10, color:"#4A5A8A"},
-  {name:"Entrance", desired:288, x:42, y:8.5, w:11.5, h:9, color:"#2C5C8A", open:true},
-  {name:"Shed", desired:240, x:0, y:0, w:12.5, h:19.5, color:"#7A4E8C"},
-  {name:"Butler Kitchen", desired:112, x:66.5, y:22, w:8.5, h:12, color:"#8A5A2C"},
-  {name:"Mudroom", desired:71.5, x:5, y:19.5, w:11.5, h:6, color:"#B2792A"},
-  {name:"Boiler", desired:34, x:0, y:28, w:5, h:6, color:"#4A5A8A"},
-  {name:"HK Bedroom", desired:156, x:12.5, y:0, w:8.5, h:12.5, color:"#3A7E8C"},
-  {name:"Closet", desired:21, x:0, y:25.5, w:16.5, h:2.5, color:"#8A5A2C"},
-  {name:"Outdoor Kitchen & Dining", desired:650, x:21, y:38, w:32.5, h:15, color:"#9C7B4D", open:true},
-  {name:"Pool Area", desired:2254, x:21, y:59.5, w:46, h:50, color:"#2C5C8A", open:true},
-  {name:"Setback 10ft", desired:1000, x:-15, y:109.75, w:100, h:10, color:"#7A4E8C", open:true},
-  {name:"Setside 10ft", desired:1500, x:75, y:-30.25, w:10, h:150, color:"#2F7D54", open:true},
-  {name:"Cabana", desired:360, x:60, y:65.5, w:15, h:24, color:"#B2792A", open:true},
-  {name:"30 setback", desired:30, x:75, y:89.5, w:1, h:30, color:"#A23A5B", open:true},
-  {name:"Grass / Volleyball", desired:2535, x:-15, y:50, w:36, h:60, color:"#3A7E8C", open:true},
-  {name:"Laundry", desired:100, x:5, y:28, w:11.5, h:6, color:"#4A5A8A"},
-  {name:"Playroom", desired:100, x:62.5, y:6.5, w:12.5, h:11, color:"#4A5A8A"},
-  {name:"Closet", desired:10, x:-15, y:25, w:5.5, h:2, color:"#2C5C8A"},
-  {name:"Stairs", desired:288, x:48.5, y:22, w:5, h:12, color:"#7A4E8C", open:true},
+  {name:"Kitchen", desired:400, x:53.5, y:34, w:21.5, h:16, color:"#7E8A97"},
+  {name:"Dining", desired:300, x:21, y:22, w:21, h:16, color:"#8F8792", open:true},
+  {name:"Living", desired:320, x:21, y:0, w:21, h:17.5, color:"#7C8B7E", open:true},
+  {name:"Dinette", desired:156, x:53.5, y:22, w:13, h:12, color:"#A08F7C"},
+  {name:"Den", desired:225, x:0, y:34, w:21, h:16, color:"#9B8288"},
+  {name:"Full Bath", desired:48, x:12.5, y:12.5, w:5.5, h:7, color:"#7C8D91"},
+  {name:"1/2 Bath", desired:27, x:66.5, y:17.5, w:8.5, h:4.5, color:"#93826F"},
+  {name:"Library", desired:156, x:53.5, y:7.5, w:9, h:10, color:"#83879A"},
+  {name:"Entrance", desired:288, x:42, y:8.5, w:11.5, h:9, color:"#7E8A97", open:true},
+  {name:"Shed", desired:240, x:0, y:0, w:12.5, h:19.5, color:"#8F8792"},
+  {name:"Butler Kitchen", desired:112, x:66.5, y:22, w:8.5, h:12, color:"#93826F"},
+  {name:"Mudroom", desired:71.5, x:5, y:19.5, w:11.5, h:6, color:"#A08F7C"},
+  {name:"Boiler", desired:34, x:0, y:28, w:5, h:6, color:"#83879A"},
+  {name:"HK Bedroom", desired:156, x:12.5, y:0, w:8.5, h:12.5, color:"#7C8D91"},
+  {name:"Closet", desired:21, x:0, y:25.5, w:16.5, h:2.5, color:"#93826F"},
+  {name:"Outdoor Kitchen & Dining", desired:650, x:21, y:38, w:32.5, h:15, color:"#9C8C75", open:true},
+  {name:"Pool Area", desired:2254, x:21, y:59.5, w:46, h:50, color:"#7E8A97", open:true},
+  {name:"Setback 10ft", desired:1000, x:-15, y:109.75, w:100, h:10, color:"#8F8792", open:true},
+  {name:"Setside 10ft", desired:1500, x:75, y:-30.25, w:10, h:150, color:"#7C8B7E", open:true},
+  {name:"Cabana", desired:360, x:60, y:65.5, w:15, h:24, color:"#A08F7C", open:true},
+  {name:"30 setback", desired:30, x:75, y:89.5, w:1, h:30, color:"#9B8288", open:true},
+  {name:"Grass / Volleyball", desired:2535, x:-15, y:50, w:36, h:60, color:"#7C8D91", open:true},
+  {name:"Laundry", desired:100, x:5, y:28, w:11.5, h:6, color:"#83879A"},
+  {name:"Playroom", desired:100, x:62.5, y:6.5, w:12.5, h:11, color:"#83879A"},
+  {name:"Closet", desired:10, x:-15, y:25, w:5.5, h:2, color:"#7E8A97"},
+  {name:"Stairs", desired:288, x:48.5, y:22, w:5, h:12, color:"#8F8792", open:true},
 ];
 let plot={pw:100,pd:150,offF:30.25,offR:10,ceilH:9,grade:2};   // lot; setbacks; ceilH = clear ceiling height; grade = first-floor height above grade (ft)
 let walls={ext:7,int:4.75};                  // wall thickness in INCHES
-// openings sit on top of the walls. type: 'door' (leaf + swing arc) | 'doorway' (plain gap) | 'window' (glazing).
+// openings sit on top of the walls. type: 'door' (leaf + swing arc) | 'doorway' (plain gap) | 'pocket' (slides into wall) | 'window' (glazing) | 'garage'.
 // x,y = one end (ft); orient 'h' spans +x, 'v' spans +y; len in ft; flip mirrors a door's swing side.
 let openings=[];
 // building outline: a free polygon of [x,y] corners (ft) in building coords; the outer wall follows it.
@@ -388,6 +401,9 @@ let selectedDim=null;                         // index of the dimension selected
 let drawWall=null;                            // in-progress polyline while drawing a new wall (array of pts) or null
 // furniture: {type, cx, cy (centre, ft), w, d (footprint ft), rot (0/90/180/270)}
 let furniture=[];
+let furnDefaults={};       // per-type default dimension overrides: {type:{w,d}} — used on Place & "reset to default"
+// the default footprint for a furniture type: a user override if set, else the built-in catalog size
+function furnDef(t){const o=furnDefaults[t]||{},c=FURN[t]||{w:3,d:3};return {w:+o.w>0?+o.w:(c.w||3),d:+o.d>0?+o.d:(c.d||3)};}
 let cur={TW:0,MD:0};
 let drag=null;
 let selected=null;         // index of the currently selected room (must be selected before it can be moved)
@@ -576,6 +592,10 @@ function snapDimPoint(x,y){const {V,H}=dimLines(),th=0.6;let nx=x,ny=y,bx=th,by=
   for(const v of V){const d=Math.abs(x-v);if(d<bx){bx=d;nx=v;}}
   for(const h of H){const d=Math.abs(y-h);if(d<by){by=d;ny=h;}}
   return [+nx.toFixed(3),+ny.toFixed(3)];}
+// straight dimensions are axis-aligned: collapse the shorter delta so `moved` (a|b) lines up with the anchor end
+function enforceStraight(dm,moved){const anc=moved==='a'?'b':'a';
+  if(Math.abs(dm[moved][0]-dm[anc][0])>=Math.abs(dm[moved][1]-dm[anc][1]))dm[moved]=[dm[moved][0],dm[anc][1]];   // horizontal
+  else dm[moved]=[dm[anc][0],dm[moved][1]];}                                                                      // vertical
 // all wall segments (outline + interior) as axis-aligned records
 function wallSegs(){const S=[];const add=(p,q)=>{if(Math.abs(p[0]-q[0])<1e-6)S.push({v:true,x:p[0],a:Math.min(p[1],q[1]),b:Math.max(p[1],q[1])});
   else if(Math.abs(p[1]-q[1])<1e-6)S.push({v:false,y:p[1],a:Math.min(p[0],q[0]),b:Math.max(p[0],q[0])});};
@@ -857,9 +877,14 @@ function buildDimsPanel(){
   const dl=document.getElementById('dimlist');if(!dl)return;
   if(!dims.length){dl.innerHTML='<tr><td colspan="3" class="empty">No dimensions yet — click “Add dimension”, then click two points.</td></tr>';return;}
   dl.innerHTML=dims.map((dm,i)=>`<tr><td class="l">(${fmt(dm.a[0])}, ${fmt(dm.a[1])}) → (${fmt(dm.b[0])}, ${fmt(dm.b[1])})</td>`+
-    `<td>${ftIn(Math.hypot(dm.a[0]-dm.b[0],dm.a[1]-dm.b[1]))}</td><td><button class="del" data-dimdel="${i}" title="Delete">✕</button></td></tr>`).join('');}
+    `<td>${ftIn(Math.hypot(dm.a[0]-dm.b[0],dm.a[1]-dm.b[1]))}</td>`+
+    `<td><label class="dimstraight" title="Constrain to horizontal/vertical"><input type="checkbox" data-dimstraight="${i}"${dm.straight!==false?' checked':''}>straight</label>`+
+    `<button class="del" data-dimdel="${i}" title="Delete">✕</button></td></tr>`).join('');}
 document.getElementById('adddimbtn').onclick=()=>{dimArmed=!dimArmed;dimA=null;buildDimsPanel();renderPlan();};
-document.getElementById('dimlist').addEventListener('click',e=>{const d=e.target.dataset.dimdel;if(d==null)return;
+document.getElementById('dimlist').addEventListener('click',e=>{
+  const s=e.target.dataset.dimstraight;                                        // toggle straight ↔ free for this dim
+  if(s!=null){const dm=dims[+s];dm.straight=e.target.checked;if(dm.straight)enforceStraight(dm,'b');buildDimsPanel();renderPlan();scheduleSave();return;}
+  const d=e.target.dataset.dimdel;if(d==null)return;
   dims.splice(+d,1);buildDimsPanel();renderPlan();scheduleSave();});
 buildDimsPanel();
 
@@ -1052,6 +1077,12 @@ function renderPlan(){
   if(editOutline)drawOutline();
   if(editWalls||drawWall)drawIWallEdit();
   drawDims();
+  // selected room's central move grip — drawn LAST so it sits above the room's name label (the only way to move a room)
+  if(selected!=null&&rooms[selected]){const r=rooms[selected],col=r.color;
+    const gc=r.poly?labelPoint(r.poly):[r.x+r.w/2,r.y+r.h/2],gx=fx(gc[0]),gy=fyR(gc[1]);
+    svg.appendChild(el('circle',{cx:gx,cy:gy,r:10,fill:'#fff','fill-opacity':.92,stroke:col,'stroke-width':1.8,'data-room-move':selected}));
+    svg.appendChild(el('line',{x1:gx-5.5,y1:gy,x2:gx+5.5,y2:gy,stroke:col,'stroke-width':1.5,'pointer-events':'none'}));
+    svg.appendChild(el('line',{x1:gx,y1:gy-5.5,x2:gx,y2:gy+5.5,stroke:col,'stroke-width':1.5,'pointer-events':'none'}));}
 }
 // manual dimension lines (line + end ticks + length label)
 function drawDims(){
@@ -1061,7 +1092,7 @@ function drawDims(){
     let dx=bx-ax,dy=by-ay,L=Math.hypot(dx,dy)||1,px=-dy/L*5,py=dx/L*5;
     svg.appendChild(el('line',{x1:ax,y1:ay,x2:bx,y2:by,stroke:'var(--blue)','stroke-width':sel?2:1}));
     tick(ax,ay,px,py);tick(bx,by,px,py);
-    const t=txt((ax+bx)/2,(ay+by)/2-4,'dimlbl',ftIn(dist));t.setAttribute('fill','var(--blue)');svg.appendChild(t);
+    const t=txt((ax+bx)/2,(ay+by)/2-4,'dimlbl',ftIn(dist));t.setAttribute('fill','var(--blue)');t.setAttribute('data-dim',i);svg.appendChild(t);
     svg.appendChild(el('line',{x1:ax,y1:ay,x2:bx,y2:by,stroke:'transparent','stroke-width':12,'data-dim':i}));
     if(sel){svg.appendChild(el('circle',{cx:ax,cy:ay,r:5,fill:'#fff',stroke:'var(--blue)','stroke-width':2,'data-dimend':i+',a'}));
       svg.appendChild(el('circle',{cx:bx,cy:by,r:5,fill:'#fff',stroke:'var(--blue)','stroke-width':2,'data-dimend':i+',b'}));}});
@@ -1145,6 +1176,15 @@ function drawOpenings(){
       jamb(ax,ay);jamb(bx,by);
     }else if(o.type==='doorway'){
       jamb(ax,ay);jamb(bx,by);
+    }else if(o.type==='pocket'){                     // pocket door — slides into the wall: open gap + leaf tucked in the pocket
+      jamb(ax,ay);jamb(bx,by);
+      const lt=Math.max(1.2,hd*0.55), R=Math.abs(o.len*PX), atB=!!o.hinge;   // atB = which jamb the leaf slides past into the wall
+      if(horiz){const jx=atB?bx:ax, dir=atB?1:-1;
+        svg.appendChild(el('rect',{x:Math.min(jx,jx+dir*R),y:ay-lt,width:R,height:2*lt,fill:'var(--paper)',stroke:'var(--ink-soft)','stroke-width':1,'stroke-dasharray':'3 2'}));   // panel recessed in the wall cavity
+        svg.appendChild(el('line',{x1:jx,y1:ay-lt,x2:jx,y2:ay+lt,stroke:'var(--ink)','stroke-width':1.5}));   // leaf leading edge, at the pocket mouth
+      }else{const jy=atB?by:ay, dir=atB?1:-1;
+        svg.appendChild(el('rect',{x:ax-lt,y:Math.min(jy,jy+dir*R),width:2*lt,height:R,fill:'var(--paper)',stroke:'var(--ink-soft)','stroke-width':1,'stroke-dasharray':'3 2'}));
+        svg.appendChild(el('line',{x1:ax-lt,y1:jy,x2:ax+lt,y2:jy,stroke:'var(--ink)','stroke-width':1.5}));}
     }else if(o.type==='garage'){                    // garage door — wide gap, closed face + panel divisions
       jamb(ax,ay);jamb(bx,by);
       svg.appendChild(el('line',{x1:ax,y1:ay,x2:bx,y2:by,stroke:'var(--ink)','stroke-width':1.5}));
@@ -1152,16 +1192,18 @@ function drawOpenings(){
       for(let k=1;k<n;k++){const t=k/n,px=ax+(bx-ax)*t,py=ay+(by-ay)*t;
         if(horiz)svg.appendChild(el('line',{x1:px,y1:py-hd*0.55,x2:px,y2:py+hd*0.55,stroke:'var(--ink-soft)','stroke-width':0.8}));
         else svg.appendChild(el('line',{x1:px-hd*0.55,y1:py,x2:px+hd*0.55,y2:py,stroke:'var(--ink-soft)','stroke-width':0.8}));}
-    }else{                                          // door — leaf + swing arc
-      const sgn=o.flip?-1:1, R=o.len*PX;
+    }else{                                          // door — leaf + swing arc (shown open DOOR_OPEN of a full 90° swing)
+      const sgn=o.flip?-1:1, R=o.len*PX, ang=DOOR_OPEN*Math.PI/2;
       const hpx=o.hinge?bx:ax, hpy=o.hinge?by:ay;   // hinge end (leaf pivots here)
-      const lpx=o.hinge?ax:bx, lpy=o.hinge?ay:by;   // strike (free) end, where the arc closes
-      const tx=horiz?hpx:hpx+sgn*R;                 // open-leaf tip: perpendicular to the wall
-      const ty=horiz?hpy+sgn*R:hpy;
-      const sweep=((tx-hpx)*(lpy-hpy)-(ty-hpy)*(lpx-hpx))>0?1:0;   // keep the 90° arc centred on the hinge (Y is screen-flipped, so this sign matters)
+      const lpx=o.hinge?ax:bx, lpy=o.hinge?ay:by;   // strike (free) end = the closed leaf position
+      const opx=horiz?hpx:hpx+sgn*R, opy=horiz?hpy+sgn*R:hpy;   // fully-open tip: perpendicular to the wall
+      const ux=(lpx-hpx)/R, uy=(lpy-hpy)/R, ox=(opx-hpx)/R, oy=(opy-hpy)/R;   // closed / open unit directions (perpendicular)
+      const tx=hpx+R*(Math.cos(ang)*ux+Math.sin(ang)*ox);   // leaf tip rotated DOOR_OPEN of the way from closed → open
+      const ty=hpy+R*(Math.cos(ang)*uy+Math.sin(ang)*oy);
+      const sweep=((opx-hpx)*(lpy-hpy)-(opy-hpy)*(lpx-hpx))>0?1:0;   // keep the arc centred on the hinge (Y is screen-flipped, so this sign matters)
       jamb(ax,ay);jamb(bx,by);
       svg.appendChild(el('line',{x1:hpx,y1:hpy,x2:tx,y2:ty,stroke:'var(--ink)','stroke-width':1.5}));     // open leaf
-      svg.appendChild(el('path',{d:`M ${tx} ${ty} A ${R} ${R} 0 0 ${sweep} ${lpx} ${lpy}`,fill:'none',stroke:'var(--ink-soft)','stroke-width':1,'stroke-dasharray':'3 3'}));  // swing
+      svg.appendChild(el('path',{d:`M ${tx} ${ty} A ${R} ${R} 0 0 ${sweep} ${lpx} ${lpy}`,fill:'none',stroke:'var(--ink-soft)','stroke-width':1,'stroke-dasharray':'3 3'}));  // swing to the closed jamb
     }
     // selection highlight (only the selected opening)
     if(i===selectedOpening)
@@ -1213,7 +1255,7 @@ function placeOpening(feet){
   renderOpenings();renderPlan();scheduleSave();
 }
 function updateToolButtons(){
-  [['door','tool-door'],['doorway','tool-doorway'],['window','tool-window'],['garage','tool-garage']].forEach(([k,id])=>
+  [['door','tool-door'],['doorway','tool-doorway'],['pocket','tool-pocket'],['window','tool-window'],['garage','tool-garage']].forEach(([k,id])=>
     document.getElementById(id).classList.toggle('armed',placeTool===k));
   document.getElementById('furn-place').classList.toggle('armed',!!placeFurn);
   svg.classList.toggle('arming',!!placeTool||!!placeFurn);
@@ -1236,8 +1278,9 @@ function drawFurniture(){
       g.appendChild(el('rect',{x:-W/2-2,y:-H/2-2,width:W+4,height:H+4,fill:'none',stroke:'var(--red)','stroke-width':1.5,'stroke-dasharray':'5 3'}));
       g.appendChild(el('line',{x1:0,y1:-H/2-2,x2:0,y2:-H/2-16,stroke:'var(--red)','stroke-width':1.4}));
       g.appendChild(el('circle',{cx:0,cy:-H/2-18,r:5,fill:'#fff',stroke:'var(--red)','stroke-width':1.6,'data-furn':i,'data-frot':1}));
-      if(f.type!=='stairs')[['l',-1,0],['r',1,0],['f',0,-1],['b',0,1]].forEach(([side,qx,qy])=>  // edge-midpoint handles: resize one dimension at a time
+      if(f.type!=='stairs'&&!f.locked)[['l',-1,0],['r',1,0],['f',0,-1],['b',0,1]].forEach(([side,qx,qy])=>  // edge-midpoint handles: resize one dimension at a time (hidden when size is locked)
         g.appendChild(el('rect',{x:qx*W/2-4,y:qy*H/2-4,width:8,height:8,fill:'#fff',stroke:'var(--red)','stroke-width':1.4,'data-furn':i,'data-fresize':side})));
+      if(f.locked)g.appendChild(el('text',{x:-W/2+3,y:-H/2+11,'font-size':10,'pointer-events':'none'})).textContent='🔒';
     }
     svg.appendChild(g);
   });
@@ -1281,18 +1324,19 @@ function stairPath(flights,turns,going,width,landWs,landDs){
   return {runs,lands,w:x1-x0,d:y1-y0,total:si};
 }
 function furnSymbol(type,W,H,g,f){
-  const c=(FURN[type]||{}).c||'#b0b4bb',ink='var(--ink)',hw=W/2,hh=H/2;
+  const c=(FURN[type]||{}).c||'#b0b4bb',ink='#5a616b',hw=W/2,hh=H/2;   // furniture line work: dark grey, not black
   const A=(tag,at)=>{const e=el(tag,at);g.appendChild(e);return e;};
-  const R=(x,y,w,h,fill,o,rx)=>A('rect',{x,y,width:w,height:h,fill:(fill==null?'none':fill),'fill-opacity':(o==null?1:o),stroke:ink,'stroke-width':1,rx:(rx||0)});
+  // furniture is drawn as line work only — every shape is an unfilled outline in ink (fill args are ignored)
+  const R=(x,y,w,h,fill,o,rx)=>A('rect',{x,y,width:w,height:h,fill:'none',stroke:ink,'stroke-width':1,rx:(rx||0)});
   const L=(x1,y1,x2,y2)=>A('line',{x1,y1,x2,y2,stroke:ink,'stroke-width':1});
-  const C=(x,y,r,fill)=>A('circle',{cx:x,cy:y,r,fill:(fill==null?'none':fill),stroke:ink,'stroke-width':1});
-  const E=(x,y,rx,ry,fill)=>A('ellipse',{cx:x,cy:y,rx,ry,fill:(fill==null?'none':fill),stroke:ink,'stroke-width':1});
-  const foot=(fill,o,rx)=>R(-hw,-hh,W,H,(fill==null?c:fill),(o==null?.55:o),(rx==null?2:rx));
+  const C=(x,y,r,fill)=>A('circle',{cx:x,cy:y,r,fill:'none',stroke:ink,'stroke-width':1});
+  const E=(x,y,rx,ry,fill)=>A('ellipse',{cx:x,cy:y,rx,ry,fill:'none',stroke:ink,'stroke-width':1});
+  const foot=(fill,o,rx)=>R(-hw,-hh,W,H,'none',1,(rx==null?2:rx));
   const t=Math.max(2.5,Math.min(W,H)*0.2);
   switch(type){
     case'sofa':case'loveseat':foot(c,.5,4);R(-hw,-hh,W,t,c,.95,3);R(-hw,-hh,t,H,c,.95,3);R(hw-t,-hh,t,H,c,.95,3);break;
     case'armchair':foot(c,.6,5);R(-hw,-hh,W,t,c,1,4);R(-hw,-hh,t,H,c,1,3);R(hw-t,-hh,t,H,c,1,3);break;
-    case'bed':{foot('#eef1f4',.97,3);const pw=(W-9)/2,ph=Math.min(H*0.3,10);
+    case'bedtwin':case'bed':case'bedking':{foot('#eef1f4',.97,3);const pw=(W-9)/2,ph=Math.min(H*0.3,10);
       R(-hw+3,-hh+3,pw,ph,'#dbe0e6',1,3);R(3,-hh+3,pw,ph,'#dbe0e6',1,3);L(-hw,-hh+ph+6,hw,-hh+ph+6);break;}
     case'diningtable':case'table':case'desk':{foot(c,.75,3);
       if(type==='diningtable'){const n=Math.max(2,Math.round(W/24)+1);
@@ -1303,6 +1347,10 @@ function furnSymbol(type,W,H,g,f){
     case'dresser':foot(c,.9,2);L(-hw,-hh+H/3,hw,-hh+H/3);L(-hw,-hh+2*H/3,hw,-hh+2*H/3);break;
     case'counter':foot(c,.9,1);R(-hw,hh-t*0.7,W,t*0.7,'#cfcabf',1,1);break;
     case'island':foot(c,.9,2);E(hw*0.4,0,Math.min(6,W*0.12),Math.min(4,H*0.22),'#cfd9e2');break;
+    case'tallcabinet':{foot(c,.95,1);R(-hw+2,-hh+2,W-4,H-4,'none',1,1);   // full-height cabinet: outline + door divisions
+      const n=Math.max(1,Math.round(W/18));for(let k=1;k<n;k++)L(-hw+W*k/n,-hh+2,-hw+W*k/n,hh-2);break;}
+    case'doubleoven':{foot(c,.95,2);R(-hw,-hh,W,t*0.7,'#9aa0a8',1,1);         // control panel strip at the back
+      R(-hw+2,-hh+t*0.7+2,W-4,H-t*0.7-4,'#2a2e34',.85,1);L(-hw+2,-hh+(H)/2,hw-2,-hh+(H)/2);break;}   // two stacked oven doors (glass)
     case'fridge':foot(c,.95,2);L(0,-hh,0,hh);L(-4,-hh+H*0.3,-4,-hh+H*0.5);break;
     case'stove':{foot(c,.95,2);const bx=W*0.22,by=H*0.22,br=Math.min(hw,hh)*0.28;[[-bx,-by],[bx,-by],[-bx,by],[bx,by]].forEach(p=>C(p[0],p[1],br,'#c9c9c9'));break;}
     case'sink':foot(c,.95,2);E(0,1,W*0.32,H*0.3,'#cfd9e2');C(0,-hh+3,1.6,ink);break;
@@ -1313,6 +1361,8 @@ function furnSymbol(type,W,H,g,f){
     case'tv':foot('#24282e',.95,1);break;
     case'plant':C(0,0,Math.min(hw,hh)-1,'#8a5a3c');C(0,0,Math.min(hw,hh)*0.7,'#4f7a48');break;
     case'washer':foot('#ededed',1,2);C(0,0,Math.min(hw,hh)*0.55,'#cfd9e2');break;
+    case'boiler':foot(c,.95,2);C(0,0,Math.min(hw,hh)*0.5,'#8f959c');C(0,0,Math.min(hw,hh)*0.22,'#cfd3d8');break;   // heating unit: burner disc + gauge
+    case'waterheater':C(0,0,Math.min(hw,hh)-1,c);C(0,0,(Math.min(hw,hh)-1)*0.6,'#e3e6ea');break;   // cylindrical tank, seen from above
     case'rug':foot(c,.2,3).setAttribute('stroke-dasharray','5 3');break;
     case'bicycles':{const n=bikeCount(W/PX),slot=W/n,bl=Math.min(H*0.96,BIKE_LEN*PX);   // bikes fixed length, count grows with width
       const y0=-bl/2,y1=bl/2,tire=Math.max(1.6,slot*0.16),wl=bl*0.3;
@@ -1339,8 +1389,8 @@ function furnSymbol(type,W,H,g,f){
   }
 }
 function placeFurnItem(feet){
-  const type=placeFurn,cat=FURN[type]||{w:3,d:3};
-  const f={type,cx:snap(feet.x),cy:snap(feet.r),w:cat.w||3,d:cat.d||3,rot:0};
+  const type=placeFurn,def=furnDef(type);
+  const f={type,cx:snap(feet.x),cy:snap(feet.r),w:def.w,d:def.d,rot:0};
   if(type==='stairs'){f.width=3;f.going=0.9;f.flights=[stepsNeeded()];f.turns=[];f.walls=[true];}   // one straight flight with the steps needed to reach the next floor
   furniture.push(f);
   selectedFurn=furniture.length-1;selected=null;selectedOpening=null;
@@ -1444,7 +1494,7 @@ svg.addEventListener('pointerdown',e=>{
   if(dimArmed){                                     // dimension tool: click point A, then point B
     const p=feetFromEvent(e),pt=snapDimPoint(p.x,p.r);
     if(!dimA){dimA=pt;renderPlan();}
-    else{if(Math.hypot(pt[0]-dimA[0],pt[1]-dimA[1])>0.1)dims.push({a:dimA,b:pt});dimArmed=false;dimA=null;buildDimsPanel();renderPlan();scheduleSave();}
+    else{if(Math.hypot(pt[0]-dimA[0],pt[1]-dimA[1])>0.1){const dm={a:dimA,b:pt,straight:true};enforceStraight(dm,'b');dims.push(dm);}dimArmed=false;dimA=null;buildDimsPanel();renderPlan();scheduleSave();}
     e.preventDefault();return;
   }
   if(editOutline){                                  // outline edit mode: drag a corner, or add one on an edge
@@ -1490,7 +1540,7 @@ svg.addEventListener('pointerdown',e=>{
     const idx=+fi;
     if(t.getAttribute('data-frot')!=null){          // rotate 90° (handle only shown when selected)
       furniture[idx].rot=((furniture[idx].rot||0)+90)%360;renderFurniture();renderPlan();scheduleSave();
-    }else if(t.getAttribute('data-fresize')!=null&&idx===selectedFurn){   // edge handle → resize one dimension
+    }else if(t.getAttribute('data-fresize')!=null&&idx===selectedFurn&&!furniture[idx].locked){   // edge handle → resize one dimension (disabled when locked)
       const p=feetFromEvent(e);
       drag={kind:'furn',mode:'resize',side:t.getAttribute('data-fresize'),idx,sx:p.x,sr:p.r,o:Object.assign({},furniture[idx])};
     }else if(idx===selectedFurn){                   // already selected → drag to move
@@ -1517,6 +1567,11 @@ svg.addEventListener('pointerdown',e=>{
     try{svg.setPointerCapture(e.pointerId);}catch(_){}
     e.preventDefault();return;
   }
+  const rmv=t.getAttribute('data-room-move');       // central grip → move the room (the only way to move it)
+  if(rmv!=null){const idx=+rmv,p=feetFromEvent(e);selected=idx;selectedOpening=null;selectedFurn=null;selectedDim=null;
+    drag={kind:'room',type:'move',idx,corner:null,sx:p.x,sr:p.r,o:Object.assign({},rooms[idx]),
+      origPoly:rooms[idx].poly?rooms[idx].poly.map(q=>q.slice()):null};
+    try{svg.setPointerCapture(e.pointerId);}catch(_){}e.preventDefault();return;}
   const ri=t.getAttribute('data-room');
   if(ri!=null){
     const idx=+ri,corner=t.getAttribute('data-corner');
@@ -1524,11 +1579,7 @@ svg.addEventListener('pointerdown',e=>{
     if(corner){                                     // resize handle (only rendered on the selected room)
       const p=feetFromEvent(e);
       drag={kind:'room',type:'resize',idx,corner,sx:p.x,sr:p.r,o:Object.assign({},rooms[idx])};
-    }else if(idx===selected){                       // already selected → press-and-drag to move
-      const p=feetFromEvent(e);
-      drag={kind:'room',type:'move',idx,corner:null,sx:p.x,sr:p.r,o:Object.assign({},rooms[idx]),
-        origPoly:rooms[idx].poly?rooms[idx].poly.map(q=>q.slice()):null};
-    }else{                                           // first touch just selects — prevents accidental moves
+    }else{                                           // clicking a room's fill only selects it — move via the central grip
       selected=idx;renderPlan();
     }
   }else{
@@ -1575,7 +1626,9 @@ svg.addEventListener('pointermove',e=>{
     footprint[drag.idx]=[nx,ny];renderPlan();return;
   }
   if(drag.kind==='dimend'){                                          // drag a dimension endpoint (snaps to faces/lot)
-    dims[drag.idx][drag.end]=snapDimPoint(p.x,p.r);renderPlan();return;
+    const dm=dims[drag.idx];dm[drag.end]=snapDimPoint(p.x,p.r);
+    if(dm.straight!==false)enforceStraight(dm,drag.end);             // straight dims stay axis-aligned
+    renderPlan();return;
   }
   if(drag.kind==='iwpt'){                                             // drag an interior-wall point
     const w=iwalls[drag.wi],ref=w[drag.pi-1]||w[drag.pi+1]||null;
@@ -1803,7 +1856,7 @@ document.getElementById('rn').addEventListener('keydown',e=>{if(e.key==='Enter')
 
 /* ---------- doors / windows editor ---------- */
 const olist=document.getElementById('openlist');
-const OTYPES=['door','doorway','window','garage'];
+const OTYPES=['door','doorway','pocket','window','garage'];
 function renderOpenings(){
   if(!openings.length){olist.innerHTML='<tr><td colspan="7" class="empty">No doors or windows yet — add one above, then drag it onto a wall.</td></tr>';return;}
   olist.innerHTML=openings.map((o,i)=>`<tr>
@@ -1833,10 +1886,21 @@ document.getElementById('tool-door').onclick=()=>armTool('door');
 document.getElementById('tool-doorway').onclick=()=>armTool('doorway');
 document.getElementById('tool-window').onclick=()=>armTool('window');
 document.getElementById('tool-garage').onclick=()=>armTool('garage');
+document.getElementById('tool-pocket').onclick=()=>armTool('pocket');
 
 /* ---------- furniture editor ---------- */
 const flist=document.getElementById('furnlist'),furnSel=document.getElementById('furnsel'),stairEd=document.getElementById('stairedit');
+const furnDefW=document.getElementById('furndefw'),furnDefD=document.getElementById('furndefd');
 furnSel.innerHTML=FURN_ORDER.map(t=>`<option value="${t}">${FURN[t].lbl}</option>`).join('');
+// show the selected type's default footprint (override or catalog) in the Default W/D fields
+function syncFurnDefFields(){const d=furnDef(furnSel.value);furnDefW.value=fmt(d.w);furnDefD.value=fmt(d.d);}
+function setFurnDefault(){const t=furnSel.value,w=parseFloat(furnDefW.value),d=parseFloat(furnDefD.value);
+  const o=furnDefaults[t]||(furnDefaults[t]={});
+  if(!isNaN(w))o.w=Math.max(0.5,w); if(!isNaN(d))o.d=Math.max(0.5,d); scheduleSave();}
+furnSel.addEventListener('change',syncFurnDefFields);
+furnDefW.addEventListener('input',setFurnDefault);
+furnDefD.addEventListener('input',setFurnDefault);
+syncFurnDefFields();
 function renderFurniture(){
   buildStairEditor();
   if(!furniture.length){flist.innerHTML='<tr><td colspan="7" class="empty">No furniture yet — pick a piece, hit Place, then click the plan.</td></tr>';return;}
@@ -1844,14 +1908,15 @@ function renderFurniture(){
     <td class="l"><span class="sw" style="background:${(FURN[f.type]||{}).c||'#aaa'}"></span>${(FURN[f.type]||{lbl:f.type}).lbl}</td>
     <td><input class="num" data-fi="${i}" data-fk="cx" type="number" step="0.5" value="${fmt(f.cx)}"></td>
     <td><input class="num" data-fi="${i}" data-fk="cy" type="number" step="0.5" value="${fmt(f.cy)}"></td>
-    <td><input class="num" data-fi="${i}" data-fk="w" type="number" min="0.5" step="0.5" value="${fmt(f.w)}"></td>
-    <td><input class="num" data-fi="${i}" data-fk="d" type="number" min="0.5" step="0.5" value="${fmt(f.d)}"></td>
+    <td><input class="num" data-fi="${i}" data-fk="w" type="number" min="0.5" step="0.5" value="${fmt(f.w)}"${f.locked?' disabled title="Size locked"':''}></td>
+    <td><input class="num" data-fi="${i}" data-fk="d" type="number" min="0.5" step="0.5" value="${fmt(f.d)}"${f.locked?' disabled title="Size locked"':''}></td>
     <td style="text-align:center"><button class="del" data-frotbtn="${i}" title="Rotate 90°" style="color:var(--ink)">↻</button> <span style="color:var(--ink-soft);font-size:11px">${f.rot||0}°</span></td>
     <td><button class="del" data-fdel="${i}" title="Delete">✕</button></td>
   </tr>`).join('');
 }
 flist.addEventListener('input',e=>{
   const i=e.target.dataset.fi,k=e.target.dataset.fk;if(i==null)return;
+  if((k==='w'||k==='d')&&furniture[i].locked)return;   // size locked
   const v=parseFloat(e.target.value);if(!isNaN(v))furniture[i][k]=(k==='w'||k==='d')?Math.max(0.5,v):v;
   renderPlan();scheduleSave();
 });
@@ -1917,15 +1982,20 @@ let ctx=null;   // {kind:'add'|'furn'|'open', idx?, feet}
 function renderCtx(panel){
   let h='';
   if(ctx.kind==='furn'){
-    const isStair=furniture[ctx.idx]&&furniture[ctx.idx].type==='stairs';
+    const fpiece=furniture[ctx.idx]||{},isStair=fpiece.type==='stairs';
     h=`<div class="hd">Furniture</div><button data-act="frot">↻ Rotate 90°</button>`+
-      (isStair?`<button data-act="fstair">✎ Edit stairs</button>`:'')+
+      (isStair?`<button data-act="fstair">✎ Edit stairs</button>`:
+        `<button data-act="freset">⤺ Reset to default size</button>`+
+        `<button data-act="flock">${fpiece.locked?'🔓 Unlock size':'🔒 Lock size'}</button>`)+
+      `<button data-act="fdup">⧉ Duplicate</button>`+
       `<button data-act="fsel">Select</button><button class="danger" data-act="fdel">✕ Delete</button>`;
   }else if(ctx.kind==='open'){
     const o=openings[ctx.idx]||{};
     h=`<div class="hd">${(o.type||'opening')}</div><button data-act="orot">⤾ Turn (H ↔ V)</button>`+
       (o.type==='door'?`<button data-act="oflip">⇄ Flip swing</button><button data-act="ohinge">⇄ Flip hinge</button>`:'')+
-      (o.type==='door'||o.type==='doorway'?`<button data-act="ogrd">${o.grade?'▲ Lift to first floor':'▼ Sit at grade'}</button>`:'')+
+      (o.type==='pocket'?`<button data-act="ohinge">⇄ Flip pocket side</button>`:'')+
+      (o.type==='door'||o.type==='doorway'||o.type==='pocket'?`<button data-act="ogrd">${o.grade?'▲ Lift to first floor':'▼ Sit at grade'}</button>`:'')+
+      `<button data-act="odup">⧉ Duplicate</button>`+
       `<button class="danger" data-act="odel">✕ Delete</button>`;
   }else if(panel==='furn'){
     h=`<div class="hd">Add furniture</div><div class="scroll">`+
@@ -1935,7 +2005,7 @@ function renderCtx(panel){
     h=`<div class="hd">Add here</div><button data-act="addroom">＋ Room (snap to walls)</button>`+
       `<button data-act="wallstart">＋ Wall from here</button>`+
       `<button data-act="adddoor">＋ Door</button>`+
-      `<button data-act="adddoorway">＋ Doorway</button><button data-act="addwindow">＋ Window</button>`+
+      `<button data-act="adddoorway">＋ Doorway</button><button data-act="addpocket">＋ Pocket door</button><button data-act="addwindow">＋ Window</button>`+
       `<button data-act="addgarage">＋ Garage door</button>`+
       `<button data-act="furnpanel">＋ Furniture ▸</button>`+
       `<button data-act="adddim">＋ Dimension from here</button>`+
@@ -2002,17 +2072,26 @@ ctxEl.addEventListener('click',e=>{
     case'rdel':if(ctx.room!=null){rooms.splice(ctx.room,1);selected=null;renderList();renderPlan();scheduleSave();}break;
     case'adddoor':placeTool='door';placeOpening(feet);break;
     case'adddoorway':placeTool='doorway';placeOpening(feet);break;
+    case'addpocket':placeTool='pocket';placeOpening(feet);break;
     case'addwindow':placeTool='window';placeOpening(feet);break;
     case'addgarage':placeTool='garage';placeOpening(feet);break;
     case'addfurn':placeFurn=b.dataset.type;placeFurnItem(feet);break;
     case'frot':furniture[ctx.idx].rot=((furniture[ctx.idx].rot||0)+90)%360;renderFurniture();renderPlan();scheduleSave();break;
+    case'freset':{const f=furniture[ctx.idx];if(f){const d=furnDef(f.type);f.w=d.w;f.d=d.d;renderFurniture();renderPlan();scheduleSave();}break;}
+    case'flock':{const f=furniture[ctx.idx];if(f){f.locked=!f.locked;renderFurniture();renderPlan();scheduleSave();}break;}
     case'fstair':selectedFurn=ctx.idx;selected=selectedOpening=selectedDim=null;setTab('furniture');renderFurniture();renderPlan();break;
+    case'fdup':{const src=furniture[ctx.idx];if(src){const cp=JSON.parse(JSON.stringify(src));   // clone (deep, so stairs arrays copy too)
+      cp.cx=snap((+cp.cx||0)+1.5);cp.cy=snap((+cp.cy||0)-1.5);                                     // offset so the copy doesn't hide the original
+      furniture.push(cp);selectedFurn=furniture.length-1;selected=selectedOpening=selectedDim=null;renderFurniture();renderPlan();scheduleSave();}break;}
     case'fsel':selectedFurn=ctx.idx;selected=null;selectedOpening=null;renderPlan();buildStairEditor();break;
     case'fdel':furniture.splice(ctx.idx,1);selectedFurn=null;renderFurniture();renderPlan();scheduleSave();break;
     case'orot':{const o=openings[ctx.idx];if(o){o.orient=o.orient==='v'?'h':'v';renderOpenings();renderPlan();scheduleSave();}break;}
     case'oflip':{const o=openings[ctx.idx];if(o){o.flip=!o.flip;renderOpenings();renderPlan();scheduleSave();}break;}
     case'ohinge':{const o=openings[ctx.idx];if(o){o.hinge=!o.hinge;renderOpenings();renderPlan();scheduleSave();}break;}
     case'ogrd':{const o=openings[ctx.idx];if(o){o.grade=!o.grade;renderOpenings();renderPlan();scheduleSave();}break;}
+    case'odup':{const src=openings[ctx.idx];if(src){const cp=JSON.parse(JSON.stringify(src));   // clone door/window/opening
+      if(cp.orient==='v')cp.y=(+cp.y||0)+(+cp.len||3);else cp.x=(+cp.x||0)+(+cp.len||3);        // shift one length along the wall so it sits beside the original
+      openings.push(cp);selectedOpening=openings.length-1;selected=selectedFurn=selectedDim=null;renderOpenings();renderPlan();scheduleSave();}break;}
     case'odel':openings.splice(ctx.idx,1);selectedOpening=null;renderOpenings();renderPlan();scheduleSave();break;
   }
   hideCtx();
@@ -2094,16 +2173,20 @@ function applyData(d){
       if(+f.rise>0)o.rise=+f.rise;
       if(Array.isArray(f.landW))o.landW=f.landW.map(Number); else if(+f.landW>0)o.landW=+f.landW;
       if(Array.isArray(f.landD))o.landD=f.landD.map(Number); else if(+f.landD>0)o.landD=+f.landD;}
+    if(f.locked)o.locked=true;
     return o;}):[];
-  dims=Array.isArray(d.dims)?d.dims.filter(m=>m&&Array.isArray(m.a)&&Array.isArray(m.b)).map(m=>({a:[+m.a[0]||0,+m.a[1]||0],b:[+m.b[0]||0,+m.b[1]||0]})):[];
+  furnDefaults={};
+  if(d.furnDefaults&&typeof d.furnDefaults==='object')for(const t in d.furnDefaults){if(!FURN[t])continue;
+    const s=d.furnDefaults[t]||{},e={};if(+s.w>0)e.w=+s.w;if(+s.d>0)e.d=+s.d;if(e.w||e.d)furnDefaults[t]=e;}
+  dims=Array.isArray(d.dims)?d.dims.filter(m=>m&&Array.isArray(m.a)&&Array.isArray(m.b)).map(m=>({a:[+m.a[0]||0,+m.a[1]||0],b:[+m.b[0]||0,+m.b[1]||0],straight:m.straight!==false})):[];
   selected=null;selectedOpening=null;selectedFurn=null;dimArmed=false;dimA=null;
-  buildPlotPanel();buildWallsPanel();buildFramePanel();buildDimsPanel();renderPlan();renderList();renderOpenings();renderFurniture();
+  buildPlotPanel();buildWallsPanel();buildFramePanel();buildDimsPanel();renderPlan();renderList();renderOpenings();renderFurniture();syncFurnDefFields();
 }
 
 async function saveLayout(manual){
   if(!STORE){if(manual)ioStatus("In-app save isn't available here — use Export instead",true);return;}
   try{
-    await STORE.set(KEY,JSON.stringify({plot,walls,footprint,iwalls,iwallsHide3d:iwalls.map(w=>!!w.hide3d),iwallsFence:iwalls.map(w=>!!w.fence),iwallsFenceFoot:iwalls.map(w=>!!w.foot),rooms,openings,furniture,dims,savedAt:new Date().toISOString()}),false);
+    await STORE.set(KEY,JSON.stringify({plot,walls,footprint,iwalls,iwallsHide3d:iwalls.map(w=>!!w.hide3d),iwallsFence:iwalls.map(w=>!!w.fence),iwallsFenceFoot:iwalls.map(w=>!!w.foot),rooms,openings,furniture,furnDefaults,dims,savedAt:new Date().toISOString()}),false);
     if(!localDraftExists){localDraftExists=true;refreshVersions();}   // surface the local-auto-save entry the first time
     ioStatus("Auto-saved ✓");
   }
@@ -2116,7 +2199,7 @@ function scheduleSave(){
 }
 /* ---------- undo / redo ---------- */
 let history=[],histIdx=-1,histLock=false;
-function histSnap(){return JSON.stringify({plot,walls,footprint,iwalls,rooms,openings,furniture,dims});}
+function histSnap(){return JSON.stringify({plot,walls,footprint,iwalls,rooms,openings,furniture,furnDefaults,dims});}
 function resetHistory(){history=[histSnap()];histIdx=0;updateUndoButtons();}
 function pushHistory(){if(histLock)return;const s=histSnap();if(histIdx>=0&&history[histIdx]===s)return;   // no real change
   history=history.slice(0,histIdx+1);history.push(s);if(history.length>80)history.shift();histIdx=history.length-1;updateUndoButtons();}
@@ -2193,8 +2276,9 @@ function exportJSON(){
     iwallsFenceFoot:iwalls.map(w=>!!w.foot),
     rooms:rooms.map(r=>{const o={name:r.name,desired:r.desired,x:r.x,y:r.y,w:r.w,h:r.h,color:r.color,open:!!r.open,grade:!!r.grade};if(r.poly)o.poly=r.poly.map(p=>[p[0],p[1]]);return o;}),
     openings:openings.map(o=>({type:o.type,orient:o.orient,x:o.x,y:o.y,len:o.len,flip:!!o.flip,hinge:!!o.hinge,...(o.grade?{grade:true}:{})})),
-    furniture:furniture.map(f=>({type:f.type,cx:f.cx,cy:f.cy,w:f.w,d:f.d,rot:f.rot||0,...(f.type==='stairs'?{width:f.width,going:f.going,flights:f.flights,turns:f.turns,walls:f.walls,...(f.rise>0?{rise:f.rise}:{}),...(getStair(f).landWs.length?{landW:getStair(f).landWs,landD:getStair(f).landDs}:{})}:{})})),
-    dims:dims.map(m=>({a:[m.a[0],m.a[1]],b:[m.b[0],m.b[1]]}))};
+    furniture:furniture.map(f=>({type:f.type,cx:f.cx,cy:f.cy,w:f.w,d:f.d,rot:f.rot||0,...(f.locked?{locked:true}:{}),...(f.type==='stairs'?{width:f.width,going:f.going,flights:f.flights,turns:f.turns,walls:f.walls,...(f.rise>0?{rise:f.rise}:{}),...(getStair(f).landWs.length?{landW:getStair(f).landWs,landD:getStair(f).landDs}:{})}:{})})),
+    furnDefaults:JSON.parse(JSON.stringify(furnDefaults)),
+    dims:dims.map(m=>({a:[m.a[0],m.a[1]],b:[m.b[0],m.b[1]],straight:m.straight!==false}))};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
   const url=URL.createObjectURL(blob);const a=document.createElement('a');
   a.href=url;a.download=`floor-plan-${new Date().toISOString().slice(0,10)}.json`;
@@ -2246,7 +2330,7 @@ async function putVersions(obj){
   if(!SHARED)return false;
   try{await SHARED.set(VKEY,JSON.stringify(obj),false);return true;}catch(e){return false;}
 }
-function snapshot(){return {plot,walls,footprint,iwalls,iwallsHide3d:iwalls.map(w=>!!w.hide3d),iwallsFence:iwalls.map(w=>!!w.fence),iwallsFenceFoot:iwalls.map(w=>!!w.foot),rooms,openings,furniture,dims,savedAt:new Date().toISOString()};}
+function snapshot(){return {plot,walls,footprint,iwalls,iwallsHide3d:iwalls.map(w=>!!w.hide3d),iwallsFence:iwalls.map(w=>!!w.fence),iwallsFenceFoot:iwalls.map(w=>!!w.foot),rooms,openings,furniture,furnDefaults,dims,savedAt:new Date().toISOString()};}
 const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 function updateStarState(){
   const name=document.getElementById('vername').value.trim();

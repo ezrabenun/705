@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Crect%20width='24'%20height='24'%20rx='4'%20fill='%23EDEAE3'/%3E%3Cg%20fill='none'%20stroke='%232b3440'%20stroke-width='1.6'%3E%3Crect%20x='4'%20y='4'%20width='16'%20height='16'%20rx='1'/%3E%3Cpath%20d='M13%204V20M4%2012H13'/%3E%3C/g%3E%3Cpath%20d='M13%2015a4%204%200%200%201%204%204'%20fill='none'%20stroke='%238a6440'%20stroke-width='1.4'/%3E%3C/svg%3E">
 <title>First Floor — 3D Model</title>
 <style>
   :root{--ink:#1f2733;--muted:#5b6675;--panel:rgba(255,255,255,.86);--line:rgba(31,39,51,.12)}
@@ -88,6 +89,7 @@ async function loadLayout(){
 }
 
 const CEIL=10, SLAB=0.35, FT=SLAB+0.02;
+const DOOR_OPEN=0.5;   // door leaves are shown open this fraction of a full 90° swing (0.5 = 45°)
 
 /* ---------- scene ---------- */
 const app=document.getElementById('app');
@@ -163,6 +165,18 @@ function shelf(g,w,x,z,rot){const c=new THREE.Group();bx(c,w,7,1,F.wood,0,0,0);
 function tv(g,x,z,rot){const c=new THREE.Group();bx(c,5,1.6,1.4,F.woodD,0,0,0);bx(c,4.6,2.7,0.2,F.black,0,1.6,-0.4);c.rotation.y=rot||0;c.position.set(x,0,z);g.add(c);}
 function plant(g,x,z){cy(g,0.55,0.9,F.pot,x,0,z);const s=new THREE.Mesh(new THREE.SphereGeometry(1.1,12,12),M(F.plant,{roughness:1}));s.position.set(x,2.3,z);s.scale.y=1.3;s.castShadow=true;g.add(s);}
 function washer(g,x,z){bx(g,2.2,3,2.2,F.white,x,0,z);const dr=new THREE.Mesh(new THREE.CircleGeometry(0.7,18),M(0x2a2e34));dr.position.set(x,1.6,z+1.11);g.add(dr);}
+function tallcab(g,w,d,x,z,rot){const c=new THREE.Group();bx(c,w,7,d,F.cab,0,0,0);   // full-height cabinet (counter material, tall)
+  const n=Math.max(1,Math.round(w/1.5));for(let k=0;k<n;k++)bx(c,0.06,6.6,0.06,F.cabD,-w/2+w*(k+0.5)/n,0.2,d/2);   // door seams on the front face
+  c.rotation.y=rot||0;c.position.set(x,0,z);g.add(c);}
+function doubleoven(g,w,d,x,z,rot){const c=new THREE.Group();bx(c,w,5.6,d,F.steel,0,0,0);   // stainless tower
+  const glass=M(0x2a2e34,{roughness:.4});bx(c,w*0.8,1.7,0.1,glass,0,1.0,d/2);bx(c,w*0.8,1.7,0.1,glass,0,2.9,d/2);   // two stacked oven doors
+  bx(c,w*0.85,0.12,0.16,F.metal,0,2.0,d/2+0.05);bx(c,w*0.85,0.12,0.16,F.metal,0,3.9,d/2+0.05);   // handles
+  bx(c,w,0.7,d,F.black,0,4.9,0);c.rotation.y=rot||0;c.position.set(x,0,z);g.add(c);}   // control panel band up top
+function boiler(g,w,d,x,z,rot){const c=new THREE.Group();bx(c,w,4.2,d,F.metal,0,0,0);   // metal cabinet
+  bx(c,0.25,3,0.25,F.steel,0,4.2,-d*0.2);bx(c,0.25,3,0.25,F.steel,0,4.2,d*0.2);   // flue + supply pipes out the top
+  bx(c,w*0.55,0.9,0.1,F.black,0,1.7,d/2);c.rotation.y=rot||0;c.position.set(x,0,z);g.add(c);}   // front control panel
+function waterheater(g,w,d,x,z){const r=Math.min(w,d)/2*0.92;cy(g,r,5,F.steel,x,0,z);   // tall insulated tank
+  cy(g,r*0.95,0.4,F.metal,x,5,z);cy(g,0.12,1.1,F.metal,x,5.4,z);}   // top cap + flue stub
 
 // build one furniture piece (centred at origin) sized by footprint w×d
 // walk the flights (each a run of `n` steps) with a landing + L/R turn between; returns centred local-feet geometry
@@ -198,12 +212,14 @@ function buildPiece(type,w,d,f,rise){const g=new THREE.Group();
     case"desk":table(g,w,d,2.4,F.woodD,0,0);break;
     case"chair":chair(g,0,0,0);break;
     case"stool":stool(g,0,0);break;
-    case"bed":bed(g,w,d,0,0,0);break;
+    case"bed":case"bedtwin":case"bedking":bed(g,w,d,0,0,0);break;
     case"nightstand":bx(g,w,2,d,F.woodD,0,0,0);break;
     case"dresser":bx(g,w,3,d,F.cabD,0,0,0);break;
     case"counter":case"island":counter(g,w,d,0,0,0);break;
+    case"tallcabinet":tallcab(g,w,d,0,0,0);break;
     case"fridge":fridge(g,0,0,0);break;
     case"stove":stove(g,0,0);break;
+    case"doubleoven":doubleoven(g,w,d,0,0,0);break;
     case"sink":vanity(g,w,0,0,0);break;
     case"toilet":toilet(g,0,0,0);break;
     case"tub":tub(g,0,0,0);break;
@@ -213,6 +229,8 @@ function buildPiece(type,w,d,f,rise){const g=new THREE.Group();
     case"tv":tv(g,0,0,0);break;
     case"plant":plant(g,0,0);break;
     case"washer":washer(g,0,0);break;
+    case"boiler":boiler(g,w,d,0,0,0);break;
+    case"waterheater":waterheater(g,w,d,0,0);break;
     case"rug":{const r=new THREE.Mesh(new THREE.BoxGeometry(w,0.05,d),M(0xb1493f,{roughness:1}));r.position.y=0.03;r.receiveShadow=true;g.add(r);break;}
     case"bicycles":{const n=Math.max(1,Math.round(w/2)),slot=w/n,cols=[0x3a7ca5,0xb1493f,0x4f7a48,0xd6a02b];   // width sets the bike count (~2 ft each)
       for(let i=0;i<n;i++)bike(g,-w/2+slot*(i+0.5),0,0,cols[i%cols.length]);break;}
@@ -404,9 +422,15 @@ function build(L){
 
   // ---- doors (open leaf shows swing; doorways are just the gap) ----
   openings.forEach(o=>{ if(o.type!=='door')return; const mat=M(0xf2efe9,{roughness:.7}),s=o.flip?-1:1,by=o.grade?-gradeH:FT;   // grade doors sit at grade
-    const hx=o.hinge?o.x+o.len:o.x, hy=o.hinge?o.y+o.len:o.y;   // the open leaf pivots at the hinge end
-    if(o.orient==='h') world.add(box(0.16,6.7,o.len,mat,hx-CX,by,CZ-(o.y-s*o.len/2)));  // z is flipped, so swing sign flips
-    else               world.add(box(o.len,6.7,0.16,mat,(o.x+s*o.len/2)-CX,by,CZ-hy)); });
+    const ang=DOOR_OPEN*Math.PI/2;                                  // the leaf pivots at the hinge, swinging DOOR_OPEN of the way open
+    const leaf=(HX,HZ,cX,cZ,oX,oZ)=>{                               // hinge world (HX,HZ); closed & open unit dirs (world X/Z)
+      const dX=Math.cos(ang)*cX+Math.sin(ang)*oX, dZ=Math.cos(ang)*cZ+Math.sin(ang)*oZ;
+      const grp=new THREE.Group(); grp.position.set(HX,0,HZ); grp.rotation.y=Math.atan2(-dZ,dX);
+      grp.add(box(o.len,6.7,0.16,mat,o.len/2,by,0)); world.add(grp); };
+    if(o.orient==='h'){const hx=o.hinge?o.x+o.len:o.x, sx=o.hinge?o.x:o.x+o.len;
+      leaf(hx-CX,CZ-o.y,Math.sign(sx-hx),0,0,s);}                   // closed along the wall (x), open perpendicular (z; flipped)
+    else{const hy=o.hinge?o.y+o.len:o.y, sy=o.hinge?o.y:o.y+o.len;
+      leaf(o.x-CX,CZ-hy,0,Math.sign(hy-sy),s,0);} });               // closed along the wall (z), open perpendicular (x)
 
   // ---- garage doors (shown OPEN — the panel is rolled up under the ceiling, opening clear below) ----
   openings.forEach(o=>{ if(o.type!=='garage')return; const mat=M(0xd0d5db,{roughness:.5}),ph=0.9,py=CEIL-ph;
