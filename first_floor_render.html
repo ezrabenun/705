@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Crect%20width='24'%20height='24'%20rx='4'%20fill='%23EDEAE3'/%3E%3Cg%20fill='none'%20stroke='%232b3440'%20stroke-width='1.6'%3E%3Crect%20x='4'%20y='4'%20width='16'%20height='16'%20rx='1'/%3E%3Cpath%20d='M13%204V20M4%2012H13'/%3E%3C/g%3E%3Cpath%20d='M13%2015a4%204%200%200%201%204%204'%20fill='none'%20stroke='%238a6440'%20stroke-width='1.4'/%3E%3C/svg%3E">
-<title>First Floor — 3D Model</title>
+<title>First Floor — Rendered</title>
 <style>
   :root{--ink:#1f2733;--muted:#5b6675;--panel:rgba(255,255,255,.86);--line:rgba(31,39,51,.12)}
   *{box-sizing:border-box}
-  html,body{margin:0;height:100%;overflow:hidden;background:#e9ecef;
+  html,body{margin:0;height:100%;overflow:hidden;background:#e7ecf0;
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink)}
   #app{position:fixed;inset:0}canvas{display:block}
   .hud{position:fixed;z-index:10;backdrop-filter:blur(10px);background:var(--panel);
@@ -29,7 +29,7 @@
   #legend .row{display:flex;align-items:center;gap:7px;margin:3px 0}
   #legend .sw{width:12px;height:12px;border-radius:3px;border:1px solid rgba(0,0,0,.15);flex:none}
   #loading{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;
-    background:#e9ecef;font-size:13px;color:var(--muted)}
+    background:#e7ecf0;font-size:13px;color:var(--muted)}
   body.clean .hud{opacity:0;pointer-events:none}
   .hud{transition:opacity .2s}
   #uiToggle{position:fixed;z-index:60;bottom:16px;left:50%;transform:translateX(-50%);
@@ -45,13 +45,13 @@
 <div id="loading">Building the model…</div>
 
 <div id="title" class="hud">
-  <h1>First Floor — 3D Model</h1>
-  <p id="subtitle">Built live from your 2D plan · walls, doors, windows &amp; furniture</p>
+  <h1>First Floor — Rendered</h1>
+  <p id="subtitle">Photoreal · modern French country — built live from your 2D plan</p>
 </div>
 
 <div id="controls" class="hud">
   <a class="btn" id="planBtn" href="index.html">← Back to plan</a>
-  <a class="btn" id="renderLink" href="first_floor_render.html">Rendered view →</a>
+  <a class="btn" id="simpleBtn" href="first_floor_3d.html">Simple 3D view →</a>
   <button class="btn" id="wallsBtn">Walls <span class="val">Low</span></button>
   <button class="btn" id="furnBtn">Furniture <span class="val">On</span></button>
   <button class="btn" id="labelBtn">Labels <span class="val">Off</span></button>
@@ -62,11 +62,11 @@
 <div id="hint" class="hud"><b>Drag</b> orbit · <b>Scroll</b> zoom · <b>Right-drag</b> pan</div>
 
 <div id="legend" class="hud">
-  <div class="row"><span class="sw" style="background:#d8c8a4"></span>Exterior wall</div>
-  <div class="row"><span class="sw" style="background:#9cc0e6"></span>Interior wall</div>
-  <div class="row"><span class="sw" style="background:#bfdcf2"></span>Window</div>
-  <div class="row"><span class="sw" style="background:#f2efe9"></span>Door</div>
-  <div class="row"><span class="sw" style="background:#b3c2a3"></span>Room floor</div>
+  <div class="row"><span class="sw" style="background:#c79a63"></span>Oak plank floor</div>
+  <div class="row"><span class="sw" style="background:#efe7d8"></span>Lime-plaster walls</div>
+  <div class="row"><span class="sw" style="background:#9aa48c"></span>Sage cabinetry / doors</div>
+  <div class="row"><span class="sw" style="background:#c9c2b4"></span>Honed stone</div>
+  <div class="row"><span class="sw" style="background:#2c2b28"></span>Wrought iron · brass</div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -92,19 +92,36 @@ async function loadLayout(){
 const CEIL=10, SLAB=0.35, FT=SLAB+0.02;
 const DOOR_OPEN=0.5;   // door leaves are shown open this fraction of a full 90° swing (0.5 = 45°)
 
-/* ---------- scene ---------- */
+/* ---------- scene & photoreal renderer ---------- */
 const app=document.getElementById('app');
-const scene=new THREE.Scene(); scene.background=new THREE.Color(0xe9ecef);
-const camera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,0.5,6000);
+const scene=new THREE.Scene(); scene.background=new THREE.Color(0xe8edf1);
+const camera=new THREE.PerspectiveCamera(42,innerWidth/innerHeight,0.5,6000);
 const renderer=new THREE.WebGLRenderer({antialias:true});
 renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.setSize(innerWidth,innerHeight);
-renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap; renderer.outputEncoding=THREE.sRGBEncoding;
+renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.outputEncoding=THREE.sRGBEncoding;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;   // filmic tone-map → photographic highlights/shadows
+renderer.toneMappingExposure=0.9;
 app.appendChild(renderer.domElement);
-scene.add(new THREE.HemisphereLight(0xffffff,0x9aa2ad,0.85));
-const sun=new THREE.DirectionalLight(0xffffff,0.85); sun.position.set(60,120,40); sun.castShadow=true;
-sun.shadow.mapSize.set(2048,2048);
-const sc=sun.shadow.camera,sz=120;sc.left=-sz;sc.right=sz;sc.top=sz;sc.bottom=-sz;sc.near=1;sc.far=460;scene.add(sun);
-const fill=new THREE.DirectionalLight(0xffffff,0.22);fill.position.set(-55,65,-40);scene.add(fill);
+
+// image-based lighting: a soft warm-daylight sky, baked to an env map with PMREM for realistic soft shading & sheen
+function skyEquirect(){const c=document.createElement('canvas');c.width=1024;c.height=512;const g=c.getContext('2d');
+  const sky=g.createLinearGradient(0,0,0,256);sky.addColorStop(0,'#aebdcd');sky.addColorStop(0.7,'#c6d0d8');sky.addColorStop(1,'#ded3bd');
+  g.fillStyle=sky;g.fillRect(0,0,1024,256);
+  const grd=g.createLinearGradient(0,256,0,512);grd.addColorStop(0,'#c2b8a2');grd.addColorStop(1,'#8f8672');
+  g.fillStyle=grd;g.fillRect(0,256,1024,256);
+  const sun=g.createRadialGradient(330,120,8,330,120,170);sun.addColorStop(0,'rgba(255,246,224,0.85)');sun.addColorStop(1,'rgba(255,244,224,0)');
+  g.fillStyle=sun;g.fillRect(0,0,1024,300);
+  const t=new THREE.CanvasTexture(c);t.mapping=THREE.EquirectangularReflectionMapping;t.encoding=THREE.sRGBEncoding;return t;}
+const pmrem=new THREE.PMREMGenerator(renderer);pmrem.compileEquirectangularShader();
+scene.environment=pmrem.fromEquirectangular(skyEquirect()).texture;
+
+// warm key "sun" with wide, soft shadows + a cool sky fill and a gentle warm bounce
+scene.add(new THREE.HemisphereLight(0xeaf0f6,0x9a8c72,0.4));
+const sun=new THREE.DirectionalLight(0xfff2dc,1.55); sun.position.set(58,116,44); sun.castShadow=true;
+sun.shadow.mapSize.set(2048,2048); sun.shadow.radius=6; sun.shadow.bias=-0.0004;
+const sc=sun.shadow.camera,sz=130;sc.left=-sz;sc.right=sz;sc.top=sz;sc.bottom=-sz;sc.near=1;sc.far=480;scene.add(sun);
+const fill=new THREE.DirectionalLight(0xdfe7f2,0.35);fill.position.set(-60,55,-46);scene.add(fill);
 
 /* ---------- helpers ---------- */
 function M(color,o){return new THREE.MeshStandardMaterial(Object.assign({color:color,roughness:0.82,metalness:0.03},o||{}));}
@@ -119,11 +136,35 @@ function cy(g){g.add(cyl.apply(null,[].slice.call(arguments,1)));}
 
 const world=new THREE.Group(); scene.add(world);
 
-/* ============ furniture primitives (feet) ============ */
-const F={woodL:0xb98b5e,wood:0x8a6440,woodD:0x5f4228,fabric:0x8b93a0,fabricB:0x63788f,cushion:0xb9c0c9,
-  white:0xededed,metal:0xb4b9c0,steel:0x9aa0a8,stone:0xd9d5cc,cab:0xe6e3dd,cabD:0x6f5842,
-  black:0x24282e,plant:0x4f7a48,pot:0x8a5a3c,bed:0xd6dade,sheet:0xeaedf1,glass:0xbfdcf2,
-  book:[0x7a5a44,0x4f6d7a,0x8a6440,0xb1493f,0x4f7a48,0x6d5f8a]};
+/* ============ modern French-country material palette ============ */
+const F={woodL:0xc79a63,wood:0x9c7648,woodD:0x5c4630,fabric:0xcfc3ad,fabricB:0x93a08c,cushion:0xe4dcc8,
+  white:0xf1ebdd,metal:0xb6b4ac,steel:0xb9bcbe,stone:0xd7d0c0,cab:0x9aa48c,cabD:0x6b5a44,
+  black:0x2b2a27,plant:0x6f8a5c,pot:0xb07a54,bed:0xd8cfbb,sheet:0xf3efe4,glass:0xcfe3ea,
+  book:[0x8a5a3c,0x6b7a5a,0x9c7648,0xa1483d,0x556b6e,0x7a6a52]};
+
+/* ---------- procedural textures (canvas → CanvasTexture; keeps the file self-contained) ---------- */
+function canvasTex(w,h,draw){const c=document.createElement('canvas');c.width=w;c.height=h;draw(c.getContext('2d'),w,h);
+  const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.anisotropy=8;t.encoding=THREE.sRGBEncoding;return t;}
+const OAK=canvasTex(512,512,(g,w,h)=>{                       // wide-plank oak
+  const planks=6,ph=h/planks,base=['#8a5f2c','#7f5626','#956733','#78521f','#8c6130','#6f4c22'];
+  for(let i=0;i<planks;i++){g.fillStyle=base[i%6];g.fillRect(0,i*ph,w,ph);
+    for(let s=0;s<46;s++){g.strokeStyle='rgba(86,58,30,'+(0.03+Math.random()*0.06)+')';g.lineWidth=0.5+Math.random();
+      const y=i*ph+Math.random()*ph;g.beginPath();g.moveTo(0,y);g.bezierCurveTo(w*0.3,y+(Math.random()-0.5)*7,w*0.6,y+(Math.random()-0.5)*7,w,y+(Math.random()-0.5)*5);g.stroke();}
+    g.strokeStyle='rgba(58,38,18,0.55)';g.lineWidth=1.6;g.beginPath();g.moveTo(0,i*ph);g.lineTo(w,i*ph);g.stroke();
+    const jx=(i%2?w*0.52:w*0.24)+(Math.random()*40-20);g.strokeStyle='rgba(58,38,18,0.5)';g.lineWidth=1.3;g.beginPath();g.moveTo(jx,i*ph);g.lineTo(jx,(i+1)*ph);g.stroke();}});
+const PLASTER=canvasTex(256,256,(g,w,h)=>{                   // soft lime-plaster mottle
+  g.fillStyle='#f1ebdd';g.fillRect(0,0,w,h);
+  for(let i=0;i<2600;i++){const a=(Math.random()-0.5)*0.05;g.fillStyle='rgba('+(a<0?90:255)+','+(a<0?80:250)+','+(a<0?66:236)+','+Math.abs(a)+')';
+    g.fillRect(Math.random()*w,Math.random()*h,1.5,1.5);}});
+PLASTER.repeat.set(3,2);
+// clone the oak with a per-room plank scale so planks read ~consistent across differently-sized rooms
+function oakFloorMat(wFt,hFt){const t=OAK.clone();t.needsUpdate=true;t.wrapS=t.wrapT=THREE.RepeatWrapping;
+  t.repeat.set(Math.max(1,wFt/8),Math.max(1,hFt/8));
+  return new THREE.MeshStandardMaterial({map:t,roughness:0.62,metalness:0});}   // matte-satin oak (no glossy clearcoat → no sky wash)
+const MAT={
+  plasterInt:new THREE.MeshStandardMaterial({map:PLASTER,color:0xffffff,roughness:0.95,metalness:0}),
+  plasterExt:new THREE.MeshStandardMaterial({map:PLASTER,color:0xe7dcc6,roughness:0.96,metalness:0}),
+};
 function sofa(g,w,d,col,rot,x,z){const s=new THREE.Group();
   bx(s,w,0.5,d,col,0,0,0);bx(s,w,1.0,0.4,col,0,0.5,-(d/2-0.2));
   bx(s,0.4,0.8,d,col,-(w/2-0.2),0.5,0);bx(s,0.4,0.8,d,col,(w/2-0.2),0.5,0);
@@ -253,7 +294,7 @@ function buildPiece(type,w,d,f,rise){const g=new THREE.Group();
 
 /* ============ build the model from the layout ============ */
 const walls=[],labelSprites=[],furnGroups=[];
-let CX=0,CZ=0, home={r:120,th:0.9,ph:0.9};
+let CX=0,CZ=0, home={r:120,th:0.78,ph:1.12};   // lower, more architectural eye line
 
 function build(L){
   const rooms=Array.isArray(L.rooms)?L.rooms:[];
@@ -285,21 +326,22 @@ function build(L){
 
   // ground + grid — sit at grade, i.e. `gradeH` below the first floor, so the first floor reads as raised above grade
   const gradeH=(L.plot&&+L.plot.grade)||0;
-  const ground=new THREE.Mesh(new THREE.PlaneGeometry(1200,1200),M(0xdfe2e6,{roughness:1}));
+  const ground=new THREE.Mesh(new THREE.PlaneGeometry(1600,1600),M(0x9caa82,{roughness:1}));   // soft lawn
   ground.rotation.x=-Math.PI/2; ground.position.y=-gradeH-0.06; ground.receiveShadow=true; world.add(ground);
-  const grid=new THREE.GridHelper(1200,240,0xcfd3d9,0xd8dbe0); grid.position.y=-gradeH-0.05; world.add(grid);
 
   // floor slabs — every room (open rooms sit flat as patios/landscape); at-grade rooms drop by the first-floor grade height
   function ptInPoly(x,z,poly){let ins=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const xi=poly[i][0],zi=poly[i][1],xj=poly[j][0],zj=poly[j][1];if(((zi>z)!==(zj>z))&&(x<(xj-xi)*(z-zi)/(zj-zi)+xi))ins=!ins;}return ins;}
   rooms.forEach(r=>{const col=r.color||'#c8ccd2';
     const h=r.open?0.08:SLAB+0.02, drop=(!r.open&&r.grade)?gradeH:0, y=r.open?(-gradeH-0.02):-drop;   // outdoor/landscape sits at grade; the first floor is raised above it
+    const floorMat=r.open?M(new THREE.Color(col),{roughness:.97,metalness:0})   // patios / landscape keep a soft matte tint
+                         :oakFloorMat(r.w,r.h);                                  // interiors → wide-plank oak
     if(Array.isArray(r.poly)&&r.poly.length>=3){          // shaped room → extrude its polygon as the floor slab
       const shape=new THREE.Shape();
       r.poly.forEach((p,i)=>{const sx=p[0]-CX,sy=p[1]-CZ;i===0?shape.moveTo(sx,sy):shape.lineTo(sx,sy);});
       const geo=new THREE.ExtrudeGeometry(shape,{depth:h,bevelEnabled:false});geo.rotateX(-Math.PI/2);
-      const m=new THREE.Mesh(geo,M(new THREE.Color(col),{roughness:.9}));m.position.y=y-h/2;m.receiveShadow=true;world.add(m);
+      const m=new THREE.Mesh(geo,floorMat);m.position.y=y-h/2;m.receiveShadow=true;world.add(m);
       return;}
-    world.add(box(r.w-0.1,h,r.h-0.1,M(new THREE.Color(col),{roughness:.9}),r.x+r.w/2-CX,y,CZ-(r.y+r.h/2)));});
+    world.add(box(r.w-0.1,h,r.h-0.1,floorMat,r.x+r.w/2-CX,y,CZ-(r.y+r.h/2)));});
   // grade-level low walls (retaining skirt around grade rooms + foundation around the footprint), -gradeH up to 0.
   // Subdivided so a garage door's opening is cut all the way down to grade.
   if(gradeH>0){
@@ -347,8 +389,8 @@ function build(L){
         else if(Math.abs(a[1]-b[1])<0.05){ if(Math.abs(mz-a[1])<0.7&&mx>Math.min(a[0],b[0])-0.25&&mx<Math.max(a[0],b[0])+0.25)return true; } } }
     return false;
   }
-  const extMat=()=>M(0xd8c8a4,{transparent:true,opacity:0.5,roughness:.6,side:THREE.DoubleSide,depthWrite:false});   // beige exterior walls
-  const intMat=()=>M(0x9cc0e6,{transparent:true,opacity:0.4,roughness:.35,side:THREE.DoubleSide,depthWrite:false});
+  const extMat=()=>MAT.plasterExt;   // opaque lime plaster (shared instances)
+  const intMat=()=>MAT.plasterInt;
   const STEP=0.5;
   function addWall(x1,z1,x2,z2,ext){const len=Math.hypot(x2-x1,z2-z1);if(len<0.25)return;
     const horiz=Math.abs(z2-z1)<Math.abs(x2-x1),t=ext?T_EXT:T_INT;
@@ -414,12 +456,18 @@ function build(L){
 
   // ---- windows (glass overlay) ----
   openings.forEach(o=>{ if(o.type!=='window')return;
-    const glass=M(F.glass,{transparent:true,opacity:0.55,roughness:.2,side:THREE.DoubleSide,depthWrite:false});
-    const mull=M(0x6f97c4),sill=2.4,h=4.4;
-    if(o.orient==='h'){world.add(box(o.len,h,0.66,glass,(o.x+o.len/2)-CX,sill,CZ-o.y));
-      world.add(box(o.len,0.15,0.72,mull,(o.x+o.len/2)-CX,sill+h/2,CZ-o.y));}
-    else{world.add(box(0.66,h,o.len,glass,o.x-CX,sill,CZ-(o.y+o.len/2)));
-      world.add(box(0.72,0.15,o.len,mull,o.x-CX,sill+h/2,CZ-(o.y+o.len/2)));}});
+    const glass=M(0xdfeef2,{transparent:true,opacity:0.18,roughness:.05,metalness:0,side:THREE.DoubleSide,depthWrite:false});  // clear glass; reflects the sky env
+    const frame=M(F.white,{roughness:.7}),sill=2.4,h=4.4,ft=0.18;                                                             // painted wood frame + muntins
+    if(o.orient==='h'){const cx=(o.x+o.len/2)-CX,cz=CZ-o.y;
+      world.add(box(o.len,h,0.5,glass,cx,sill,cz));
+      world.add(box(o.len,ft,0.62,frame,cx,sill+h/2,cz));world.add(box(o.len,ft,0.62,frame,cx,sill-h/2,cz));      // head + sill
+      world.add(box(ft,h,0.62,frame,cx-o.len/2,sill,cz));world.add(box(ft,h,0.62,frame,cx+o.len/2,sill,cz));      // jambs
+      world.add(box(o.len,0.1,0.58,frame,cx,sill,cz));world.add(box(0.1,h,0.58,frame,cx,sill,cz));}              // muntins (cross)
+    else{const cx=o.x-CX,cz=CZ-(o.y+o.len/2);
+      world.add(box(0.5,h,o.len,glass,cx,sill,cz));
+      world.add(box(0.62,ft,o.len,frame,cx,sill+h/2,cz));world.add(box(0.62,ft,o.len,frame,cx,sill-h/2,cz));
+      world.add(box(0.62,h,ft,frame,cx,sill,cz-o.len/2));world.add(box(0.62,h,ft,frame,cx,sill,cz+o.len/2));
+      world.add(box(0.58,0.1,o.len,frame,cx,sill,cz));world.add(box(0.58,h,0.1,frame,cx,sill,cz));}});
 
   // ---- doors (open leaf shows swing; doorways are just the gap) ----
   openings.forEach(o=>{ if(o.type!=='door')return; const mat=M(0xf2efe9,{roughness:.7}),s=o.flip?-1:1,by=o.grade?-gradeH:FT;   // grade doors sit at grade
@@ -474,11 +522,11 @@ addEventListener('pointerup',()=>drag=null);
 el.addEventListener('contextmenu',e=>e.preventDefault());
 el.addEventListener('wheel',e=>{e.preventDefault();R*=(1+Math.sign(e.deltaY)*0.08);R=Math.max(12,Math.min(600,R));applyCam();},{passive:false});
 
-let wallMode=1;const wallBtn=document.getElementById('wallsBtn');   // default: Low
-function applyWallMode(){wallBtn.querySelector('.val').textContent=['Glass','Low','Off'][wallMode];
-  walls.forEach(({mesh,mat,ext})=>{if(wallMode===2){mesh.visible=false;return;}mesh.visible=true;
-    if(wallMode===0){mat.opacity=ext?0.5:0.4;mesh.scale.y=1;mesh.position.y=CEIL/2;}
-    else{mat.opacity=ext?0.9:0.7;mesh.scale.y=0.34;mesh.position.y=CEIL*0.34/2;}});}
+let wallMode=1;const wallBtn=document.getElementById('wallsBtn');   // default: Low cutaway so the styled interior (oak, furniture) is visible
+function applyWallMode(){wallBtn.querySelector('.val').textContent=['Solid','Low','Off'][wallMode];
+  walls.forEach(({mesh})=>{if(wallMode===2){mesh.visible=false;return;}mesh.visible=true;
+    if(wallMode===1){mesh.scale.y=0.34;mesh.position.y=CEIL*0.34/2;}   // dollhouse cut-down
+    else{mesh.scale.y=1;mesh.position.y=CEIL/2;}});}
 wallBtn.onclick=()=>{wallMode=(wallMode+1)%3;applyWallMode();};
 let furnOn=true;const furnBtn=document.getElementById('furnBtn');
 furnBtn.onclick=()=>{furnOn=!furnOn;furnBtn.querySelector('.val').textContent=furnOn?'On':'Off';furnGroups.forEach(g=>g.visible=furnOn);};
@@ -499,7 +547,9 @@ addEventListener('keydown',e=>{if((e.key==='h'||e.key==='H')&&!e.metaKey&&!e.ctr
 (async function(){
   let L; try{L=await loadLayout();}catch(e){L={rooms:[]};}
   try{build(L);}catch(err){console.error(err);document.getElementById('subtitle').textContent='Could not build the model from the layout.';}
-  applyWallMode();applyLabels();        // apply the Low-walls / labels-off defaults now that geometry exists
+  scene.traverse(o=>{if(!o.material)return;(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{   // dial back image-based lighting so plaster/oak keep their tone
+    if('envMapIntensity' in m){m.envMapIntensity=0.4;m.needsUpdate=true;}});});
+  applyWallMode();applyLabels();        // apply the Solid-walls / labels-off defaults now that geometry exists
   const n=(L.furniture||[]).length;
   document.getElementById('subtitle').textContent=`${(L.rooms||[]).filter(r=>!r.open).length} rooms · ${(L.openings||[]).length} openings · ${n} furniture — built from your 2D plan`;
   R=home.r;applyCam();

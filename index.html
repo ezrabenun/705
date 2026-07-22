@@ -174,6 +174,7 @@
     <button class="btn ghost" id="undobtn" title="Undo (Ctrl+Z)" disabled>↶ Undo</button>
     <button class="btn ghost" id="redobtn" title="Redo (Ctrl+Y)" disabled>↷ Redo</button>
     <button class="btn" id="view3dbtn">🧊 3D View</button>
+    <button class="btn" id="renderbtn">🏡 Render</button>
     <button class="btn ghost" id="exportbtn">⬇ Export</button>
     <button class="btn ghost" id="importbtn">⬆ Import</button>
     <button class="btn ghost" id="resetbtn">Reset to default</button>
@@ -2302,6 +2303,11 @@ document.getElementById('view3dbtn').onclick=async()=>{
   try{localStorage.setItem('layout3d',JSON.stringify(snapshot()));}catch(e){}
   await saveLayout(false);
   window.location.href='first_floor_3d.html';
+};
+document.getElementById('renderbtn').onclick=async()=>{   // photoreal, modern-French-country render view
+  try{localStorage.setItem('layout3d',JSON.stringify(snapshot()));}catch(e){}
+  await saveLayout(false);
+  window.location.href='first_floor_render.html';
 };
 document.getElementById('resetbtn').onclick=resetToDefault;
 document.getElementById('exportbtn').onclick=exportJSON;
