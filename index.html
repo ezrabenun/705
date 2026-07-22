@@ -1194,11 +1194,13 @@ function drawOpenings(){
         const le=jx-dir*inOpen;                                            // leaf leading (strike) edge, inside the doorway
         svg.appendChild(el('rect',{x:Math.min(le,le+dir*R),y:ay-lt,width:R,height:2*lt,fill:'var(--paper)',stroke:'var(--ink)','stroke-width':1.5}));   // the door leaf (full width), mostly tucked in the pocket
         svg.appendChild(el('line',{x1:le,y1:ay-lt,x2:le,y2:ay+lt,stroke:'var(--ink)','stroke-width':1.5}));   // leaf leading edge
+        svg.appendChild(el('line',{x1:jx,y1:ay-lt,x2:jx,y2:ay+lt,stroke:'var(--paper)','stroke-width':2}));   // white break where the doorway ends and the wall pocket begins (center of the opening+pocket span)
       }else{const jy=atB?by:ay, dir=atB?-1:1;   // screen-Y is flipped vs plan-Y, so vertical openings take the opposite in-wall direction
         svg.appendChild(el('rect',{x:ax-lt,y:Math.min(jy,jy+dir*R),width:2*lt,height:R,fill:'var(--paper)',stroke:'var(--ink-soft)','stroke-width':1,'stroke-dasharray':'3 2'}));
         const le=jy-dir*inOpen;
         svg.appendChild(el('rect',{x:ax-lt,y:Math.min(le,le+dir*R),width:2*lt,height:R,fill:'var(--paper)',stroke:'var(--ink)','stroke-width':1.5}));
-        svg.appendChild(el('line',{x1:ax-lt,y1:le,x2:ax+lt,y2:le,stroke:'var(--ink)','stroke-width':1.5}));}
+        svg.appendChild(el('line',{x1:ax-lt,y1:le,x2:ax+lt,y2:le,stroke:'var(--ink)','stroke-width':1.5}));
+        svg.appendChild(el('line',{x1:ax-lt,y1:jy,x2:ax+lt,y2:jy,stroke:'var(--paper)','stroke-width':2}));}   // white break where the doorway ends and the wall pocket begins (center of the opening+pocket span)
     }else if(o.type==='garage'){                    // garage door — wide gap, closed face + panel divisions
       jamb(ax,ay);jamb(bx,by);
       svg.appendChild(el('line',{x1:ax,y1:ay,x2:bx,y2:by,stroke:'var(--ink)','stroke-width':1.5}));
