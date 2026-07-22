@@ -2200,7 +2200,9 @@ function scheduleSave(){
 }
 /* ---------- undo / redo ---------- */
 let history=[],histIdx=-1,histLock=false;
-function histSnap(){return JSON.stringify({plot,walls,footprint,iwalls,rooms,openings,furniture,furnDefaults,dims});}
+function histSnap(){return JSON.stringify({plot,walls,footprint,iwalls,
+  iwallsHide3d:iwalls.map(w=>!!w.hide3d),iwallsFence:iwalls.map(w=>!!w.fence),iwallsFenceFoot:iwalls.map(w=>!!w.foot),   // flags live on the arrays; JSON.stringify drops them unless captured here (fixes undo wiping fences)
+  rooms,openings,furniture,furnDefaults,dims});}
 function resetHistory(){history=[histSnap()];histIdx=0;updateUndoButtons();}
 function pushHistory(){if(histLock)return;const s=histSnap();if(histIdx>=0&&history[histIdx]===s)return;   // no real change
   history=history.slice(0,histIdx+1);history.push(s);if(history.length>80)history.shift();histIdx=history.length-1;updateUndoButtons();}
