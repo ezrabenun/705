@@ -1052,6 +1052,26 @@ function renderPlan(){
       fill:'none',stroke:'var(--wall)','stroke-width':itPx,'stroke-linecap':'square','stroke-linejoin':'miter'};
     if(w.hide3d){at['stroke-dasharray']='2 5';at['stroke-opacity']=0.35;}   // 2D-only wall: drawn faint/dashed, omitted from the 3D view
     svg.appendChild(el('path',at));});
+  // load-bearing indicator: where a current interior wall sits directly over a wall below, tint its outer
+  // pixel on each face darker blue (does not widen the wall) — shown over the overlapping stretch only
+  if(activeFloor>0&&floors[activeFloor-1]){
+    const bel=floors[activeFloor-1], bseg=[], BLUE='#1f4e8c', TOL=0.34, off=Math.max(0.5,itPx/2-0.5);
+    const seg=(a,q)=>Math.abs(a[0]-q[0])<1e-3?{v:true,ax:(a[0]+q[0])/2,lo:Math.min(a[1],q[1]),hi:Math.max(a[1],q[1])}
+      :Math.abs(a[1]-q[1])<1e-3?{v:false,ax:(a[1]+q[1])/2,lo:Math.min(a[0],q[0]),hi:Math.max(a[0],q[0])}:null;
+    if(Array.isArray(bel.footprint))for(let i=0;i<bel.footprint.length;i++){const s=seg(bel.footprint[i],bel.footprint[(i+1)%bel.footprint.length]);if(s)bseg.push(s);}
+    (bel.iwalls||[]).forEach(w=>{for(let i=0;i+1<w.length;i++){const s=seg(w[i],w[i+1]);if(s)bseg.push(s);}});
+    iwalls.forEach(w=>{if(w.length<2||w.fence)return;
+      for(let i=0;i+1<w.length;i++){const s=seg(w[i],w[i+1]);if(!s)continue;
+        for(const t of bseg){if(t.v!==s.v||Math.abs(t.ax-s.ax)>TOL)continue;
+          const lo=Math.max(s.lo,t.lo),hi=Math.min(s.hi,t.hi);if(hi-lo<0.3)continue;   // overlapping stretch only
+          if(s.v){const sx=fx(s.ax),ya=fyR(lo),yb=fyR(hi);
+            svg.appendChild(el('line',{x1:sx-off,y1:ya,x2:sx-off,y2:yb,stroke:BLUE,'stroke-width':1,'pointer-events':'none'}));
+            svg.appendChild(el('line',{x1:sx+off,y1:ya,x2:sx+off,y2:yb,stroke:BLUE,'stroke-width':1,'pointer-events':'none'}));}
+          else{const sy=fyR(s.ax),xa=fx(lo),xb=fx(hi);
+            svg.appendChild(el('line',{x1:xa,y1:sy-off,x2:xb,y2:sy-off,stroke:BLUE,'stroke-width':1,'pointer-events':'none'}));
+            svg.appendChild(el('line',{x1:xa,y1:sy+off,x2:xb,y2:sy+off,stroke:BLUE,'stroke-width':1,'pointer-events':'none'}));}
+        }}});
+  }
   // exterior wall shell (along footprint outline)
   svg.appendChild(el('path',{d:"M "+pts.map(p=>fx(p[0])+" "+fyR(p[1])).join(" L ")+" Z",
     fill:'none',stroke:'var(--ink)','stroke-width':Math.max(1.5,walls.ext/12*PX),'stroke-linejoin':'miter'}));
