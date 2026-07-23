@@ -1009,14 +1009,16 @@ function renderPlan(){
   const footD="M "+pts.map(p=>fx(p[0])+" "+fyR(p[1])).join(" L ")+" Z";
   svg.appendChild(el('path',{d:footD,fill:FILL[0],'fill-opacity':.3,stroke:'#C2C8CD','stroke-width':1}));
 
-  // ghost of the floor below — walled-room outlines, to line up load-bearing walls (non-interactive)
+  // ghost of the floor below — each wall drawn as DOUBLE lines at its true thickness (both faces),
+  // so load-bearing walls above can be lined up to the exact wall edges below (non-interactive)
   if(showBelow&&activeFloor>0&&floors[activeFloor-1]){
     const b=floors[activeFloor-1], gcol='#8895a3';
-    (b.rooms||[]).forEach(r=>{if(r.open)return;                         // skip open/outdoor rooms (porches etc.) — outside the outer walls
-      const poly=(Array.isArray(r.poly)&&r.poly.length>=3)?r.poly:[[r.x,r.y],[r.x+r.w,r.y],[r.x+r.w,r.y+r.h],[r.x,r.y+r.h]];
-      svg.appendChild(el('path',{d:"M "+poly.map(p=>fx(p[0])+" "+fyR(p[1])).join(" L ")+" Z",fill:'none',stroke:gcol,'stroke-width':1,'stroke-opacity':.6,'stroke-dasharray':'5 4','pointer-events':'none'}));});
-    (b.iwalls||[]).forEach(w=>{if(w.length<2)return;                    // and the interior-wall runs below
-      svg.appendChild(el('path',{d:"M "+w.map(p=>fx(p[0])+" "+fyR(p[1])).join(" L "),fill:'none',stroke:gcol,'stroke-width':1,'stroke-opacity':.6,'stroke-dasharray':'5 4','pointer-events':'none'}));});
+    const dbl=(pts,tft,closed)=>{const h=Math.max(tft,0.2)/2, n=pts.length, segs=closed?n:n-1;   // offset each face by half the wall thickness
+      for(let i=0;i<segs;i++){const a=pts[i],q=pts[(i+1)%n];
+        const dx=q[0]-a[0],dy=q[1]-a[1],L=Math.hypot(dx,dy)||1,nx=-dy/L*h,ny=dx/L*h;              // perpendicular offset (feet)
+        [1,-1].forEach(s=>svg.appendChild(el('line',{x1:fx(a[0]+nx*s),y1:fyR(a[1]+ny*s),x2:fx(q[0]+nx*s),y2:fyR(q[1]+ny*s),stroke:gcol,'stroke-width':1,'stroke-opacity':.75,'pointer-events':'none'})));}};
+    if(Array.isArray(b.footprint)&&b.footprint.length>=2)dbl(b.footprint,(walls.ext||0)/12,true);   // exterior walls below
+    (b.iwalls||[]).forEach(w=>{if(w.length>=2)dbl(w,(walls.int||0)/12,false);});                     // interior walls below
   }
 
   // (lot lines, dimensions & front label are drawn after rooms, below)
