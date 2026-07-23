@@ -53,6 +53,7 @@
   <a class="btn" id="planBtn" href="index.html">← Back to plan</a>
   <a class="btn" id="renderLink" href="first_floor_render.html">Rendered view →</a>
   <button class="btn" id="wallsBtn">Walls <span class="val">Low</span></button>
+  <button class="btn" id="floorsBtn" style="display:none">Floors <span class="val">All</span></button>
   <button class="btn" id="furnBtn">Furniture <span class="val">On</span></button>
   <button class="btn" id="labelBtn">Labels <span class="val">Off</span></button>
   <button class="btn" id="spinBtn">Auto-rotate <span class="val">Off</span></button>
@@ -253,7 +254,7 @@ function buildPiece(type,w,d,f,rise){const g=new THREE.Group();
 }
 
 /* ============ build the model from the layout ============ */
-const walls=[],labelSprites=[],furnGroups=[];
+const walls=[],labelSprites=[],furnGroups=[],floorGroups=[];
 let CX=0,CZ=0, home={r:120,th:0.9,ph:0.9};
 
 function build(L,opts){
@@ -481,11 +482,11 @@ function buildAll(L){
   const shared={plot:L.plot,walls:L.walls,wings:L.wings};
   const flrs=(Array.isArray(L.floors)&&L.floors.length)?L.floors:[L];
   const floorH=CEIL, n=flrs.length;
-  const g0=new THREE.Group(); world.add(g0);
+  const g0=new THREE.Group(); world.add(g0); floorGroups.push(g0);
   build(Object.assign({},shared,flrs[0]),{g:g0});
   const cx0=CX,cz0=CZ,r0=home.r;
   for(let i=1;i<n;i++){
-    const gi=new THREE.Group(); gi.position.y=i*floorH; world.add(gi);
+    const gi=new THREE.Group(); gi.position.y=i*floorH; world.add(gi); floorGroups.push(gi);
     build(Object.assign({},shared,flrs[i]),{g:gi,cx:cx0,cz:cz0,suppressGrade:true,skipGround:true});
   }
   CX=cx0;CZ=cz0;
@@ -516,6 +517,12 @@ function applyWallMode(){wallBtn.querySelector('.val').textContent=['Glass','Low
 wallBtn.onclick=()=>{wallMode=(wallMode+1)%3;applyWallMode();};
 let furnOn=true;const furnBtn=document.getElementById('furnBtn');
 furnBtn.onclick=()=>{furnOn=!furnOn;furnBtn.querySelector('.val').textContent=furnOn?'On':'Off';furnGroups.forEach(g=>g.visible=furnOn);};
+// Floors: hide the levels above a chosen floor so you can look down into it. Cycles All → top-1 → … → ground → All.
+let topShown=Infinity;const floorsBtn=document.getElementById('floorsBtn');
+function applyFloors(){const n=floorGroups.length,top=Math.min(topShown,n-1);
+  floorGroups.forEach((g,i)=>{g.visible=i<=top;});
+  floorsBtn.querySelector('.val').textContent=(top>=n-1)?'All':('Floor '+(top+1));}
+floorsBtn.onclick=()=>{const n=floorGroups.length;let top=Math.min(topShown,n-1);top=(top<=0)?n-1:top-1;topShown=top;applyFloors();};
 let labelsOn=false;const labelBtn=document.getElementById('labelBtn');  // default: Off
 function applyLabels(){labelBtn.querySelector('.val').textContent=labelsOn?'On':'Off';labelSprites.forEach(s=>s.visible=labelsOn);}
 labelBtn.onclick=()=>{labelsOn=!labelsOn;applyLabels();};
@@ -534,6 +541,7 @@ addEventListener('keydown',e=>{if((e.key==='h'||e.key==='H')&&!e.metaKey&&!e.ctr
   let L; try{L=await loadLayout();}catch(e){L={rooms:[]};}
   try{buildAll(L);}catch(err){console.error(err);document.getElementById('subtitle').textContent='Could not build the model from the layout.';}
   applyWallMode();applyLabels();        // apply the Low-walls / labels-off defaults now that geometry exists
+  if(floorGroups.length>1){floorsBtn.style.display='';topShown=floorGroups.length-1;applyFloors();}   // multi-floor → offer the Floors control
   const flrs=(Array.isArray(L.floors)&&L.floors.length)?L.floors:[L];
   const nf=flrs.length,
     nr=flrs.reduce((s,f)=>s+(f.rooms||[]).filter(r=>!r.open).length,0),
