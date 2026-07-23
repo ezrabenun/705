@@ -181,6 +181,17 @@
     <input type="file" id="importfile" accept="application/json,.json" hidden>
   </div>
 
+  <div class="io" id="floorbar">
+    <label style="font:inherit;display:inline-flex;align-items:center;gap:6px">Floor
+      <select id="floorsel" class="verlist" title="Switch floor" style="max-width:190px"></select>
+    </label>
+    <button class="btn" id="addfloorbtn" title="Add a floor above, copying the outline of the top floor">＋ Add floor above</button>
+    <button class="btn ghost" id="delfloorbtn" title="Remove the top floor" disabled>🗑 Remove top floor</button>
+    <label style="font:inherit;display:inline-flex;align-items:center;gap:5px" title="Ghost the rooms of the floor below to line up load-bearing walls">
+      <input type="checkbox" id="showbelow"> Show floor below
+    </label>
+  </div>
+
   <!-- ROOMS -->
   <div class="pane on" id="pane-rooms">
     <div class="addrow">
@@ -414,6 +425,51 @@ let selectedOpening=null;  // index of the currently selected door/window
 let selectedFurn=null;     // index of the currently selected furniture piece
 let placeTool=null;        // 'door' | 'doorway' | 'window' while a door/window tool is armed
 let placeFurn=null;        // furniture type string while the furniture tool is armed
+
+// ---- floors -------------------------------------------------------------
+// The building can stack multiple levels. Each floor owns its own footprint /
+// interior walls / rooms / openings / furniture / dimensions; the lot (plot) and
+// wall thicknesses are building-wide. The globals above always hold the ACTIVE
+// floor's live data — switching packs them back into `floors` and loads the next.
+let floors=[{footprint,iwalls,rooms,openings,furniture,dims}];   // floor 0 = the data seeded above
+let activeFloor=0;
+let showBelow=false;                          // ghost the floor below, to line up load-bearing walls
+const FLOORNAMES=['First','Second','Third','Fourth','Fifth','Sixth','Seventh','Eighth','Ninth','Tenth'];
+function floorName(i){return (FLOORNAMES[i]||('Floor '+(i+1)))+' Floor';}
+function commitFloor(){if(floors[activeFloor])floors[activeFloor]={footprint,iwalls,rooms,openings,furniture,dims};}
+function loadFloorData(f){footprint=f.footprint;iwalls=f.iwalls;rooms=f.rooms;openings=f.openings;furniture=f.furniture;dims=f.dims;}
+function clearFloorEditState(){selected=selectedOpening=selectedFurn=selectedDim=selectedWall=selectedEdge=null;editWalls=editOutline=false;drawWall=null;quickWall=false;dimArmed=false;dimA=null;}
+function refreshFloorPanels(){syncFloorUI();buildWallsPanel();buildFramePanel();buildDimsPanel();renderPlan();renderList();renderOpenings();renderFurniture();}
+function switchFloor(i){
+  i=Math.min(Math.max(0,i|0),floors.length-1);
+  if(i===activeFloor)return;
+  commitFloor();activeFloor=i;loadFloorData(floors[i]);clearFloorEditState();
+  if(activeFloor===0)showBelow=false;
+  refreshFloorPanels();scheduleSave();
+}
+function addFloorAbove(){
+  commitFloor();
+  const below=floors[floors.length-1];                    // stack on top of the current highest floor
+  floors.push({footprint:below.footprint.map(p=>p.slice()),iwalls:[],rooms:[],openings:[],furniture:[],dims:[]});   // same outer shape, empty inside
+  activeFloor=floors.length-1;loadFloorData(floors[activeFloor]);clearFloorEditState();
+  showBelow=true;                                          // default the ghost on so walls can be lined up
+  refreshFloorPanels();scheduleSave();
+  ioStatus('Added '+floorName(activeFloor)+' — outline copied from below');
+}
+function removeTopFloor(){
+  if(floors.length<=1)return;
+  if(!confirm('Remove the top floor and everything on it?'))return;
+  commitFloor();floors.pop();if(activeFloor>=floors.length)activeFloor=floors.length-1;
+  loadFloorData(floors[activeFloor]);clearFloorEditState();if(activeFloor===0)showBelow=false;
+  refreshFloorPanels();scheduleSave();ioStatus('Removed the top floor');
+}
+function syncFloorUI(){
+  const sel=document.getElementById('floorsel');
+  if(sel){sel.innerHTML=floors.map((_,i)=>`<option value="${i}">${floorName(i)}${i===0?' (foundation)':''}</option>`).join('');sel.value=activeFloor;}
+  const sb=document.getElementById('showbelow');if(sb){sb.checked=showBelow;sb.disabled=activeFloor===0;}
+  const del=document.getElementById('delfloorbtn');if(del)del.disabled=floors.length<=1;
+  const h=document.querySelector('.topbar h1');if(h)h.textContent=floorName(activeFloor)+' · Plan';
+}
 
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 let snapStep=0.5;                             // grid step for dragging; drops to 1" while Shift is held
@@ -952,6 +1008,16 @@ function renderPlan(){
   const pts=footprint;
   const footD="M "+pts.map(p=>fx(p[0])+" "+fyR(p[1])).join(" L ")+" Z";
   svg.appendChild(el('path',{d:footD,fill:FILL[0],'fill-opacity':.3,stroke:'#C2C8CD','stroke-width':1}));
+
+  // ghost of the floor below — walled-room outlines, to line up load-bearing walls (non-interactive)
+  if(showBelow&&activeFloor>0&&floors[activeFloor-1]){
+    const b=floors[activeFloor-1], gcol='#8895a3';
+    (b.rooms||[]).forEach(r=>{if(r.open)return;                         // skip open/outdoor rooms (porches etc.) — outside the outer walls
+      const poly=(Array.isArray(r.poly)&&r.poly.length>=3)?r.poly:[[r.x,r.y],[r.x+r.w,r.y],[r.x+r.w,r.y+r.h],[r.x,r.y+r.h]];
+      svg.appendChild(el('path',{d:"M "+poly.map(p=>fx(p[0])+" "+fyR(p[1])).join(" L ")+" Z",fill:'none',stroke:gcol,'stroke-width':1,'stroke-opacity':.6,'stroke-dasharray':'5 4','pointer-events':'none'}));});
+    (b.iwalls||[]).forEach(w=>{if(w.length<2)return;                    // and the interior-wall runs below
+      svg.appendChild(el('path',{d:"M "+w.map(p=>fx(p[0])+" "+fyR(p[1])).join(" L "),fill:'none',stroke:gcol,'stroke-width':1,'stroke-opacity':.6,'stroke-dasharray':'5 4','pointer-events':'none'}));});
+  }
 
   // (lot lines, dimensions & front label are drawn after rooms, below)
 
@@ -2159,22 +2225,20 @@ let ready=false,saveTimer=null,defaultName=null,localDraftExists=false;
 
 function ioStatus(msg,err){const s=document.getElementById('iostatus');s.textContent=msg;s.style.color=err?'var(--red)':'var(--green)';}
 
-function applyData(d){
-  if(d.plot&&typeof d.plot==='object')
-    plot={pw:Math.max(1,+d.plot.pw||100),pd:Math.max(1,+d.plot.pd||150),offF:Math.max(0,+d.plot.offF||0),offR:Math.max(0,+d.plot.offR||0),ceilH:Math.max(4,+d.plot.ceilH||9),grade:Math.max(0,+d.plot.grade||0)};
-  if(d.walls&&typeof d.walls==='object')
-    walls={ext:Math.max(0,+d.walls.ext||0),int:Math.max(0,+d.walls.int||0)};
+// parse ONE floor-shaped object (footprint/iwalls/rooms/openings/furniture/dims) into the live
+// globals. Called once per floor by applyData; the caller then captures the fresh arrays.
+function loadFloorGlobalsFrom(d){
   if(Array.isArray(d.footprint)&&d.footprint.length>=3)
     footprint=d.footprint.map(p=>[+p[0]||0,+p[1]||0]);
   else if(Array.isArray(d.wings)&&d.wings.length>=1)                       // migrate legacy wings → outline polygon
     footprint=wingsToPolygon(d.wings.map(s=>({w:Math.max(0,+s.w||0),d:Math.max(0,+s.d||0),s:Math.max(0,+s.s||0)})));
-  if(Array.isArray(d.rooms))
-    rooms=d.rooms.map((r,i)=>{const rm={name:r.name!=null?String(r.name):"Room "+(i+1),
+  else footprint=[];
+  rooms=Array.isArray(d.rooms)?d.rooms.map((r,i)=>{const rm={name:r.name!=null?String(r.name):"Room "+(i+1),
       desired:Math.max(1,+r.desired||1),x:+r.x||0,y:+r.y||0,
       w:Math.max(1,+r.w||1),h:Math.max(1,+r.h||1),color:r.color||RC[i%RC.length],open:!!r.open,grade:!!r.grade};
       if(Array.isArray(r.poly)&&r.poly.length>=3)rm.poly=r.poly.map(p=>[+p[0]||0,+p[1]||0]);
-      return rm;});
-  // interior walls: use saved ones, else seed from the room layout (old saves had none)
+      return rm;}):[];
+  // interior walls: use saved ones (incl. empty), else seed from the room layout (old saves had none)
   if(Array.isArray(d.iwalls)){const hf=Array.isArray(d.iwallsHide3d)?d.iwallsHide3d:[],ff=Array.isArray(d.iwallsFence)?d.iwallsFence:[],ft=Array.isArray(d.iwallsFenceFoot)?d.iwallsFenceFoot:[];   // hide3d/fence/foundation flags are parallel bool arrays (aligned before filtering)
     iwalls=d.iwalls.map((w,i)=>({w,h:!!hf[i],f:!!ff[i],ft:!!ft[i]})).filter(o=>Array.isArray(o.w)&&o.w.length>=2)
       .map(o=>{const a=o.w.map(p=>[+p[0]||0,+p[1]||0]);if(o.h)a.hide3d=true;if(o.f)a.fence=true;if(o.ft)a.foot=true;return a;});
@@ -2195,18 +2259,29 @@ function applyData(d){
       if(Array.isArray(f.landD))o.landD=f.landD.map(Number); else if(+f.landD>0)o.landD=+f.landD;}
     if(f.locked)o.locked=true;
     return o;}):[];
-  furnDefaults={};
+  dims=Array.isArray(d.dims)?d.dims.filter(m=>m&&Array.isArray(m.a)&&Array.isArray(m.b)).map(m=>({a:[+m.a[0]||0,+m.a[1]||0],b:[+m.b[0]||0,+m.b[1]||0],straight:m.straight!==false})):[];
+}
+function applyData(d){
+  if(d.plot&&typeof d.plot==='object')
+    plot={pw:Math.max(1,+d.plot.pw||100),pd:Math.max(1,+d.plot.pd||150),offF:Math.max(0,+d.plot.offF||0),offR:Math.max(0,+d.plot.offR||0),ceilH:Math.max(4,+d.plot.ceilH||9),grade:Math.max(0,+d.plot.grade||0)};
+  if(d.walls&&typeof d.walls==='object')
+    walls={ext:Math.max(0,+d.walls.ext||0),int:Math.max(0,+d.walls.int||0)};
+  furnDefaults={};   // building-wide
   if(d.furnDefaults&&typeof d.furnDefaults==='object')for(const t in d.furnDefaults){if(!FURN[t])continue;
     const s=d.furnDefaults[t]||{},e={};if(+s.w>0)e.w=+s.w;if(+s.d>0)e.d=+s.d;if(e.w||e.d)furnDefaults[t]=e;}
-  dims=Array.isArray(d.dims)?d.dims.filter(m=>m&&Array.isArray(m.a)&&Array.isArray(m.b)).map(m=>({a:[+m.a[0]||0,+m.a[1]||0],b:[+m.b[0]||0,+m.b[1]||0],straight:m.straight!==false})):[];
-  selected=null;selectedOpening=null;selectedFurn=null;dimArmed=false;dimA=null;
-  buildPlotPanel();buildWallsPanel();buildFramePanel();buildDimsPanel();renderPlan();renderList();renderOpenings();renderFurniture();syncFurnDefFields();
+  // multi-floor file → the floors array; a legacy single-floor file → the whole object as one floor
+  const src=(Array.isArray(d.floors)&&d.floors.length)?d.floors:[d];
+  floors=src.map(fd=>{loadFloorGlobalsFrom(fd);return {footprint,iwalls,rooms,openings,furniture,dims};});
+  activeFloor=Math.min(Math.max(0,d.activeFloor|0),floors.length-1);
+  loadFloorData(floors[activeFloor]);
+  clearFloorEditState();if(activeFloor===0)showBelow=false;
+  syncFloorUI();buildPlotPanel();buildWallsPanel();buildFramePanel();buildDimsPanel();renderPlan();renderList();renderOpenings();renderFurniture();syncFurnDefFields();
 }
 
 async function saveLayout(manual){
   if(!STORE){if(manual)ioStatus("In-app save isn't available here — use Export instead",true);return;}
   try{
-    await STORE.set(KEY,JSON.stringify({plot,walls,footprint,iwalls,iwallsHide3d:iwalls.map(w=>!!w.hide3d),iwallsFence:iwalls.map(w=>!!w.fence),iwallsFenceFoot:iwalls.map(w=>!!w.foot),rooms,openings,furniture,furnDefaults,dims,savedAt:new Date().toISOString()}),false);
+    await STORE.set(KEY,JSON.stringify(snapshot()),false);
     if(!localDraftExists){localDraftExists=true;refreshVersions();}   // surface the local-auto-save entry the first time
     ioStatus("Auto-saved ✓");
   }
@@ -2219,9 +2294,7 @@ function scheduleSave(){
 }
 /* ---------- undo / redo ---------- */
 let history=[],histIdx=-1,histLock=false;
-function histSnap(){return JSON.stringify({plot,walls,footprint,iwalls,
-  iwallsHide3d:iwalls.map(w=>!!w.hide3d),iwallsFence:iwalls.map(w=>!!w.fence),iwallsFenceFoot:iwalls.map(w=>!!w.foot),   // flags live on the arrays; JSON.stringify drops them unless captured here (fixes undo wiping fences)
-  rooms,openings,furniture,furnDefaults,dims});}
+function histSnap(){commitFloor();return JSON.stringify({plot,walls,furnDefaults,activeFloor,floors:floors.map(floorToJSON)});}   // all floors, so undo/redo restores every level (flags captured via floorToJSON)
 function resetHistory(){history=[histSnap()];histIdx=0;updateUndoButtons();}
 function pushHistory(){if(histLock)return;const s=histSnap();if(histIdx>=0&&history[histIdx]===s)return;   // no real change
   history=history.slice(0,histIdx+1);history.push(s);if(history.length>80)history.shift();histIdx=history.length-1;updateUndoButtons();}
@@ -2280,15 +2353,19 @@ async function resetToDefault(){
     rooms=JSON.parse(JSON.stringify(DEFAULTS.rooms));
     openings=JSON.parse(JSON.stringify(DEFAULTS.openings));
     furniture=JSON.parse(JSON.stringify(DEFAULTS.furniture));
-    selectedFurn=null;
-    buildPlotPanel();buildWallsPanel();buildFramePanel();renderPlan();renderList();renderOpenings();renderFurniture();
+    dims=[];
+    floors=[{footprint,iwalls,rooms,openings,furniture,dims}];activeFloor=0;showBelow=false;
+    clearFloorEditState();
+    syncFloorUI();buildPlotPanel();buildWallsPanel();buildFramePanel();buildDimsPanel();renderPlan();renderList();renderOpenings();renderFurniture();
     ioStatus("Reset to the built-in default");
   }
   scheduleSave();
 }
 
 function exportJSON(){
-  const data={schema:"first-floor-plan",version:1,exported:new Date().toISOString(),
+  commitFloor();
+  const data={schema:"first-floor-plan",version:2,exported:new Date().toISOString(),
+    floors:floors.map(floorToJSON),activeFloor,   // all floors; the flat fields below mirror the active one
     plot:{pw:plot.pw,pd:plot.pd,offF:plot.offF,offR:plot.offR,ceilH:plot.ceilH,grade:plot.grade},
     walls:{ext:walls.ext,int:walls.int},
     footprint:footprint.map(p=>[p[0],p[1]]),
@@ -2311,7 +2388,7 @@ function importJSON(file){
   const reader=new FileReader();
   reader.onload=()=>{
     try{const d=JSON.parse(reader.result);
-      if(!Array.isArray(d.footprint)&&!Array.isArray(d.wings)&&!Array.isArray(d.rooms)&&!d.plot){ioStatus("No layout data found in that file",true);return;}
+      if(!Array.isArray(d.floors)&&!Array.isArray(d.footprint)&&!Array.isArray(d.wings)&&!Array.isArray(d.rooms)&&!d.plot){ioStatus("No layout data found in that file",true);return;}
       applyData(d);ioStatus("Imported layout");scheduleSave();
     }catch(err){ioStatus("Could not read that file — not valid layout JSON",true);}
   };
@@ -2331,6 +2408,10 @@ document.getElementById('renderbtn').onclick=async()=>{   // photoreal, modern-F
   window.location.href='first_floor_render.html';
 };
 document.getElementById('resetbtn').onclick=resetToDefault;
+document.getElementById('addfloorbtn').onclick=addFloorAbove;
+document.getElementById('delfloorbtn').onclick=removeTopFloor;
+document.getElementById('floorsel').addEventListener('change',e=>switchFloor(+e.target.value));
+document.getElementById('showbelow').addEventListener('change',e=>{showBelow=e.target.checked;renderPlan();});
 document.getElementById('exportbtn').onclick=exportJSON;
 document.getElementById('undobtn').onclick=undo;
 document.getElementById('redobtn').onclick=redo;
@@ -2357,7 +2438,17 @@ async function putVersions(obj){
   if(!SHARED)return false;
   try{await SHARED.set(VKEY,JSON.stringify(obj),false);return true;}catch(e){return false;}
 }
-function snapshot(){return {plot,walls,footprint,iwalls,iwallsHide3d:iwalls.map(w=>!!w.hide3d),iwallsFence:iwalls.map(w=>!!w.fence),iwallsFenceFoot:iwalls.map(w=>!!w.foot),rooms,openings,furniture,furnDefaults,dims,savedAt:new Date().toISOString()};}
+// one floor → plain JSON. iwall fence/foundation/hide3d flags live as properties on the arrays,
+// which JSON.stringify drops, so they're captured as parallel boolean arrays (aligned by index).
+function floorToJSON(f){return {footprint:f.footprint,iwalls:f.iwalls,
+  iwallsHide3d:f.iwalls.map(w=>!!w.hide3d),iwallsFence:f.iwalls.map(w=>!!w.fence),iwallsFenceFoot:f.iwalls.map(w=>!!w.foot),
+  rooms:f.rooms,openings:f.openings,furniture:f.furniture,dims:f.dims};}
+// The flat active-floor fields are kept alongside `floors` so the existing 3D/Render views (which
+// read the top-level footprint/rooms/… ) keep working unchanged — they show the active floor.
+function snapshot(){commitFloor();const a=floors[activeFloor];
+  return {plot,walls,footprint:a.footprint,iwalls:a.iwalls,iwallsHide3d:a.iwalls.map(w=>!!w.hide3d),iwallsFence:a.iwalls.map(w=>!!w.fence),iwallsFenceFoot:a.iwalls.map(w=>!!w.foot),
+    rooms:a.rooms,openings:a.openings,furniture:a.furniture,furnDefaults,dims:a.dims,
+    floors:floors.map(floorToJSON),activeFloor,savedAt:new Date().toISOString()};}
 const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 function updateStarState(){
   const name=document.getElementById('vername').value.trim();
@@ -2442,7 +2533,7 @@ document.getElementById('verlist').addEventListener('change',e=>{
 });
 document.getElementById('vername').addEventListener('input',updateStarState);
 
-renderPlan();renderList();renderOpenings();renderFurniture();resetHistory();
+syncFloorUI();renderPlan();renderList();renderOpenings();renderFurniture();resetHistory();
 (async()=>{await loadSaved();await refreshVersions();})();
 </script>
 </body>
