@@ -30,9 +30,7 @@
   svg{width:100%;height:auto;display:block;touch-action:none;-webkit-user-select:none;user-select:none;
     transform-origin:0 0;}
   #plan *{pointer-events:none;}
-  #plan [data-room]{pointer-events:all;cursor:pointer;}
-  #plan rect[data-corner]{pointer-events:all;cursor:nwse-resize;}
-  #plan [data-room-move]{pointer-events:all;cursor:move;}
+  #plan [data-room]{pointer-events:all;cursor:default;}
   #plan [data-open]{pointer-events:all;cursor:pointer;}
   #plan [data-open].osel{cursor:move;}
   #plan [data-ohandle]{pointer-events:all;cursor:crosshair;}
@@ -315,6 +313,7 @@ const svg=document.getElementById('plan');
 const PX=10, M_LEFT=92, M_TOP=78, M_RIGHT=40, M_BOT=58;
 const DOOR_OPEN=0.5;                           // doors are drawn open this fraction of a full 90° swing (0.5 = 45°)
 const POCKET_OPEN=0.75;                         // pocket doors are drawn slid this fraction into the wall (0.75 = mostly open)
+const SPLIT_MIN=5;                              // a wall/edge shorter than this (ft) is too short to split — no "+" handle
 const NAME=["A","B","C","D","E","F","G","H"];
 const FILL=["#DCE6EC","#E6E1D8","#EBD9CE","#DEE7E0","#E6DCEA","#E0E8E6","#ECE3D2","#DDE2EC"];
 const RC=["#7E8A97","#8F8792","#7C8B7E","#A08F7C","#9B8288","#7C8D91","#93826F","#83879A"];   // muted, low-saturation room tones
@@ -1028,15 +1027,11 @@ function renderPlan(){
   rooms.forEach((r,i)=>{
     if(r.poly){
       const d="M "+r.poly.map(p=>fx(p[0])+" "+fyR(p[1])).join(" L ")+" Z";
-      const path=el('path',{d,fill:r.color,'fill-opacity':i===selected?.34:.18,'data-room':i});
-      if(i===selected)path.setAttribute('class','selected');
-      svg.appendChild(path);
+      svg.appendChild(el('path',{d,fill:r.color,'fill-opacity':.18,'data-room':i}));
       return;
     }
     const x=fx(r.x), y=fyR(r.y+r.h), pxW=r.w*PX, pxH=r.h*PX;
-    const rect=el('rect',{x,y,width:pxW,height:pxH,fill:r.color,'fill-opacity':i===selected?.34:.18,'data-room':i});
-    if(i===selected)rect.setAttribute('class','selected');
-    svg.appendChild(rect);
+    svg.appendChild(el('rect',{x,y,width:pxW,height:pxH,fill:r.color,'fill-opacity':.18,'data-room':i}));
     if(r.open)svg.appendChild(el('rect',{x,y,width:pxW,height:pxH,fill:'none',stroke:r.color,'stroke-width':2,'stroke-dasharray':'6 4'}));
   });
   // interior walls — free-drawn polylines, stroked at the interior wall thickness
@@ -1085,22 +1080,6 @@ function renderPlan(){
   rooms.forEach(r=>{if(r.open)return;roomEdges(r).forEach(([o,ax,a,b])=>{edgeGaps(o,ax,a,b).forEach(([lo,hi])=>{
     const x1=o==='v'?ax:lo,y1=o==='v'?lo:ax,x2=o==='v'?ax:hi,y2=o==='v'?hi:ax;
     svg.appendChild(el('line',{x1:fx(x1),y1:fyR(y1),x2:fx(x2),y2:fyR(y2),stroke:'var(--red)','stroke-width':3.5,'stroke-dasharray':'2 3','stroke-opacity':.95}));});});});
-  // rooms — pass 3: selection outline + resize handles (only the selected room can be moved/resized)
-  rooms.forEach((r,i)=>{
-    if(i!==selected)return;
-    const col=r.color, pxW=r.w*PX, pxH=r.h*PX;
-    if(r.poly){   // polygon room: dashed outline only (reshape via right-click → Snap to walls)
-      svg.appendChild(el('path',{d:"M "+r.poly.map(p=>fx(p[0])+" "+fyR(p[1])).join(" L ")+" Z",
-        fill:'none',stroke:col,'stroke-width':2,'stroke-dasharray':'5 3'}));
-      return;
-    }
-    svg.appendChild(el('rect',{x:fx(r.x),y:fyR(r.y+r.h),width:pxW,height:pxH,
-      fill:'none',stroke:col,'stroke-width':2,'stroke-dasharray':'5 3'}));
-    [['fl',r.x,r.y],['fr',r.x+r.w,r.y],['bl',r.x,r.y+r.h],['br',r.x+r.w,r.y+r.h]].forEach(([c,hx,hr])=>{
-      svg.appendChild(el('rect',{x:fx(hx)-4,y:fyR(hr)-4,width:8,height:8,fill:'#fff',stroke:col,'stroke-width':1.5,
-        'data-room':i,'data-corner':c}));
-    });
-  });
 
   // furniture, then doors / windows (drawn over the walls)
   drawFurniture();
@@ -1174,12 +1153,6 @@ function renderPlan(){
   if(editOutline)drawOutline();
   if(editWalls||drawWall)drawIWallEdit();
   drawDims();
-  // selected room's central move grip — drawn LAST so it sits above the room's name label (the only way to move a room)
-  if(selected!=null&&rooms[selected]){const r=rooms[selected],col=r.color;
-    const gc=r.poly?labelPoint(r.poly):[r.x+r.w/2,r.y+r.h/2],gx=fx(gc[0]),gy=fyR(gc[1]);
-    svg.appendChild(el('circle',{cx:gx,cy:gy,r:10,fill:'#fff','fill-opacity':.92,stroke:col,'stroke-width':1.8,'data-room-move':selected}));
-    svg.appendChild(el('line',{x1:gx-5.5,y1:gy,x2:gx+5.5,y2:gy,stroke:col,'stroke-width':1.5,'pointer-events':'none'}));
-    svg.appendChild(el('line',{x1:gx,y1:gy-5.5,x2:gx,y2:gy+5.5,stroke:col,'stroke-width':1.5,'pointer-events':'none'}));}
 }
 // manual dimension lines (line + end ticks + length label)
 function drawDims(){
@@ -1209,6 +1182,7 @@ function drawIWallEdit(){
     const w=iwalls[selectedWall],wi=selectedWall;
     if(w&&w.length>=2){
       for(let i=0;i+1<w.length;i++){const p=w[i],q=w[i+1],mx=(p[0]+q[0])/2,my=(p[1]+q[1])/2;
+        if(Math.hypot(q[0]-p[0],q[1]-p[1])<SPLIT_MIN)continue;   // too short to split → no "+"
         const add=el('circle',{cx:fx(mx),cy:fyR(my),r:6,fill:'var(--wall)',stroke:'#fff','stroke-width':1.5,'data-iwadd':wi+','+i});
         add.style.cursor='copy';svg.appendChild(add);
         const plus=txt(fx(mx),fyR(my)+3.4,'','+');plus.setAttribute('fill','#fff');plus.setAttribute('font-size','11');plus.setAttribute('font-weight','700');plus.style.pointerEvents='none';svg.appendChild(plus);}
@@ -1231,9 +1205,11 @@ function drawOutline(){
     if(i===selectedEdge)svg.appendChild(el('line',{x1:fx(p[0]),y1:fyR(p[1]),x2:fx(q[0]),y2:fyR(q[1]),stroke:'var(--blue)','stroke-width':Math.max(4,walls.ext/12*PX+3),'stroke-opacity':.45}));
     svg.appendChild(el('line',{x1:fx(p[0]),y1:fyR(p[1]),x2:fx(q[0]),y2:fyR(q[1]),stroke:'var(--blue)','stroke-width':1.5,'stroke-opacity':.55}));
     svg.appendChild(el('line',{x1:fx(p[0]),y1:fyR(p[1]),x2:fx(q[0]),y2:fyR(q[1]),stroke:'transparent','stroke-width':12,'data-fedge':i}));   // click to select this outer wall
-    const add=el('circle',{cx:fx(mx),cy:fyR(my),r:7,fill:'var(--blue)',stroke:'#fff','stroke-width':1.5,'data-fadd':i});
-    add.style.cursor='copy';svg.appendChild(add);
-    const plus=txt(fx(mx),fyR(my)+3.6,'','+');plus.setAttribute('fill','#fff');plus.setAttribute('font-size','12');plus.setAttribute('font-weight','700');plus.style.pointerEvents='none';svg.appendChild(plus);
+    if(Math.hypot(q[0]-p[0],q[1]-p[1])>=SPLIT_MIN){   // only offer a split "+" on edges long enough to split
+      const add=el('circle',{cx:fx(mx),cy:fyR(my),r:7,fill:'var(--blue)',stroke:'#fff','stroke-width':1.5,'data-fadd':i});
+      add.style.cursor='copy';svg.appendChild(add);
+      const plus=txt(fx(mx),fyR(my)+3.6,'','+');plus.setAttribute('fill','#fff');plus.setAttribute('font-size','12');plus.setAttribute('font-weight','700');plus.style.pointerEvents='none';svg.appendChild(plus);
+    }
   }
   for(let i=0;i<n;i++){
     const p=footprint[i];
@@ -1698,27 +1674,13 @@ svg.addEventListener('pointerdown',e=>{
     try{svg.setPointerCapture(e.pointerId);}catch(_){}
     e.preventDefault();return;
   }
-  const rmv=t.getAttribute('data-room-move');       // central grip → move the room (the only way to move it)
-  if(rmv!=null){const idx=+rmv,p=feetFromEvent(e);selected=idx;selectedOpening=null;selectedFurn=null;selectedDim=null;
-    drag={kind:'room',type:'move',idx,corner:null,sx:p.x,sr:p.r,o:Object.assign({},rooms[idx]),
-      origPoly:rooms[idx].poly?rooms[idx].poly.map(q=>q.slice()):null};
-    try{svg.setPointerCapture(e.pointerId);}catch(_){}e.preventDefault();return;}
   const ri=t.getAttribute('data-room');
-  if(ri!=null){
-    const idx=+ri,corner=t.getAttribute('data-corner');
-    if(!corner){                                    // a click near a wall selects the wall, not the room beneath it
-      const f=feetFromEvent(e);                     // (walls otherwise lose every click to the room fill covering them)
-      if(editWallAt(f.x,f.r)){try{svg.setPointerCapture(e.pointerId);}catch(_){}e.preventDefault();return;}
-    }
-    if(selectedOpening!=null||selectedFurn!=null){selectedOpening=null;selectedFurn=null;}  // selecting a room clears other selections
-    if(corner){                                     // resize handle (only rendered on the selected room)
-      const p=feetFromEvent(e);
-      drag={kind:'room',type:'resize',idx,corner,sx:p.x,sr:p.r,o:Object.assign({},rooms[idx])};
-    }else{                                           // clicking a room's fill only selects it — move via the central grip
-      selected=idx;renderPlan();
-    }
+  if(ri!=null){                                     // rooms aren't selectable — but a click near a wall still selects the wall
+    const f=feetFromEvent(e);                        // (walls otherwise lose every click to the room fill covering them)
+    if(editWallAt(f.x,f.r)){try{svg.setPointerCapture(e.pointerId);}catch(_){}e.preventDefault();return;}
+    if(selectedOpening!=null||selectedFurn!=null||selectedDim!=null){selectedOpening=null;selectedFurn=null;selectedDim=null;renderPlan();}  // clicking a room clears other selections
   }else{
-    if(selected!=null||selectedOpening!=null||selectedFurn!=null||selectedDim!=null){selected=null;selectedOpening=null;selectedFurn=null;selectedDim=null;renderPlan();}  // tap empty → deselect
+    if(selectedOpening!=null||selectedFurn!=null||selectedDim!=null){selectedOpening=null;selectedFurn=null;selectedDim=null;renderPlan();}  // tap empty → deselect
     if(view.scale>1){
       panP={id:e.pointerId,sx:e.clientX,sy:e.clientY,otx:view.tx,oty:view.ty};
     }
@@ -1866,7 +1828,6 @@ document.addEventListener('keydown',e=>{
     if(editWalls&&selectedWall!=null&&iwalls[selectedWall])nudgeWall(selectedWall,dx,dy);
     else if(editOutline&&selectedEdge!=null&&footprint[selectedEdge])nudgeOutlineEdge(selectedEdge,dx,dy);
     else if(selectedFurn!=null&&furniture[selectedFurn]){const f=furniture[selectedFurn];f.cx+=dx;f.cy+=dy;renderFurniture();renderPlan();scheduleSave();}
-    else if(selected!=null&&rooms[selected])nudgeRoom(selected,dx,dy);
     else if(selectedOpening!=null&&openings[selectedOpening]){const o=openings[selectedOpening];o.x+=dx;o.y+=dy;renderOpenings();renderPlan();scheduleSave();}
     else if(selectedDim!=null&&dims[selectedDim]){const m=dims[selectedDim];m.a=[m.a[0]+dx,m.a[1]+dy];m.b=[m.b[0]+dx,m.b[1]+dy];buildDimsPanel();renderPlan();scheduleSave();}
     else did=false;
@@ -2184,7 +2145,7 @@ ctxEl.addEventListener('click',e=>{
       const nr={name:nm||('Room '+(rooms.length+1)),color:RC[rooms.length%RC.length]};
       if(poly){const bb=polyBBox(poly);nr.poly=poly;nr.x=bb.x;nr.y=bb.y;nr.w=bb.w;nr.h=bb.h;nr.desired=Math.max(1,Math.round(Math.abs(polyArea(poly))));}
       else{nr.x=snap(feet.x-6);nr.y=snap(feet.r-5);nr.w=12;nr.h=10;nr.desired=120;}
-      rooms.push(nr);selected=rooms.length-1;selectedOpening=null;selectedFurn=null;renderList();renderPlan();scheduleSave();break;}
+      rooms.push(nr);selected=null;selectedOpening=null;selectedFurn=null;renderList();renderPlan();scheduleSave();break;}
     case'wallstart':drawWall=[wallStartPoint(feet.x,feet.r)];quickWall=true;editWalls=false;editOutline=false;buildWallsPanel();renderPlan();ioStatus('Click the wall’s far end to finish');break;
     case'adddim':dimArmed=true;dimA=snapDimPoint(feet.x,feet.r);buildDimsPanel();renderPlan();break;
     case'dimdel2':if(ctx.dim!=null){dims.splice(ctx.dim,1);selectedDim=null;buildDimsPanel();renderPlan();scheduleSave();}break;
