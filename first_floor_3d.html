@@ -299,6 +299,7 @@ function build(L,opts){
   // floor slabs — every room (open rooms sit flat as patios/landscape); at-grade rooms drop by the first-floor grade height
   function ptInPoly(x,z,poly){let ins=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const xi=poly[i][0],zi=poly[i][1],xj=poly[j][0],zj=poly[j][1];if(((zi>z)!==(zj>z))&&(x<(xj-xi)*(z-zi)/(zj-zi)+xi))ins=!ins;}return ins;}
   rooms.forEach(r=>{const col=r.color||'#c8ccd2';
+    if(opts.suppressGrade&&r.open)return;   // open room on an upper floor = a stairwell/void: no slab, so the stairs below show coming up through it
     const h=r.open?0.08:SLAB+0.02, drop=(!r.open&&r.grade)?gradeH:0, y=r.open?(-gradeH-0.02):-drop;   // outdoor/landscape sits at grade; the first floor is raised above it
     if(Array.isArray(r.poly)&&r.poly.length>=3){          // shaped room → extrude its polygon as the floor slab
       const shape=new THREE.Shape();
