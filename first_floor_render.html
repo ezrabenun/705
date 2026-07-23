@@ -297,7 +297,9 @@ function buildPiece(type,w,d,f,rise){const g=new THREE.Group();
 const walls=[],labelSprites=[],furnGroups=[];
 let CX=0,CZ=0, home={r:120,th:0.78,ph:1.12};   // lower, more architectural eye line
 
-function build(L){
+function build(L,opts){
+  opts=opts||{};
+  const FG=opts.g||world;                 // meshes go into this floor's group (offset vertically by the caller)
   const rooms=Array.isArray(L.rooms)?L.rooms:[];
   const openings=Array.isArray(L.openings)?L.openings:[];
   const furniture=Array.isArray(L.furniture)?L.furniture:[];
@@ -324,11 +326,14 @@ function build(L){
   if(minX>maxX){minX=0;maxX=40;minZ=0;maxZ=40;}
   CX=(minX+maxX)/2; CZ=(minZ+maxZ)/2;
   const span=Math.max(maxX-minX,maxZ-minZ,20); home.r=span*1.5+18;
+  if(opts.cx!=null){CX=opts.cx;CZ=opts.cz;}   // upper floors reuse the foundation's centre so levels line up
 
-  // ground + grid — sit at grade, i.e. `gradeH` below the first floor, so the first floor reads as raised above grade
-  const gradeH=(L.plot&&+L.plot.grade)||0;
-  const ground=new THREE.Mesh(new THREE.PlaneGeometry(1600,1600),M(0x9caa82,{roughness:1}));   // soft lawn
-  ground.rotation.x=-Math.PI/2; ground.position.y=-gradeH-0.06; ground.receiveShadow=true; world.add(ground);
+  // ground — sits at grade, i.e. `gradeH` below the first floor. Upper floors have no grade/ground.
+  const gradeH=opts.suppressGrade?0:((L.plot&&+L.plot.grade)||0);
+  if(!opts.skipGround){
+    const ground=new THREE.Mesh(new THREE.PlaneGeometry(1600,1600),M(0x9caa82,{roughness:1}));   // soft lawn
+    ground.rotation.x=-Math.PI/2; ground.position.y=-gradeH-0.06; ground.receiveShadow=true; FG.add(ground);
+  }
 
   // floor slabs — every room (open rooms sit flat as patios/landscape); at-grade rooms drop by the first-floor grade height
   function ptInPoly(x,z,poly){let ins=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const xi=poly[i][0],zi=poly[i][1],xj=poly[j][0],zj=poly[j][1];if(((zi>z)!==(zj>z))&&(x<(xj-xi)*(z-zi)/(zj-zi)+xi))ins=!ins;}return ins;}
@@ -340,15 +345,15 @@ function build(L){
       const shape=new THREE.Shape();
       r.poly.forEach((p,i)=>{const sx=p[0]-CX,sy=p[1]-CZ;i===0?shape.moveTo(sx,sy):shape.lineTo(sx,sy);});
       const geo=new THREE.ExtrudeGeometry(shape,{depth:h,bevelEnabled:false});geo.rotateX(-Math.PI/2);
-      const m=new THREE.Mesh(geo,floorMat);m.position.y=y-h/2;m.receiveShadow=true;world.add(m);
+      const m=new THREE.Mesh(geo,floorMat);m.position.y=y-h/2;m.receiveShadow=true;FG.add(m);
       return;}
-    world.add(box(r.w-0.1,h,r.h-0.1,floorMat,r.x+r.w/2-CX,y,CZ-(r.y+r.h/2)));});
+    FG.add(box(r.w-0.1,h,r.h-0.1,floorMat,r.x+r.w/2-CX,y,CZ-(r.y+r.h/2)));});
   // grade-level low walls (retaining skirt around grade rooms + foundation around the footprint), -gradeH up to 0.
   // Subdivided so a garage door's opening is cut all the way down to grade.
   if(gradeH>0){
     const lowWall=(x1,z1,x2,z2,mat,th)=>{const len=Math.hypot(x2-x1,z2-z1);if(len<0.2)return;
       const horiz=Math.abs(z2-z1)<Math.abs(x2-x1),n=Math.max(1,Math.round(len/0.5));let run=null;
-      const put=(ax,az,bx,bz)=>{const l=Math.hypot(bx-ax,bz-az);if(l<0.15)return;const hz=Math.abs(bz-az)<Math.abs(bx-ax);world.add(box(hz?l:th,gradeH,hz?th:l,mat,(ax+bx)/2-CX,-gradeH,CZ-(az+bz)/2));};
+      const put=(ax,az,bx,bz)=>{const l=Math.hypot(bx-ax,bz-az);if(l<0.15)return;const hz=Math.abs(bz-az)<Math.abs(bx-ax);FG.add(box(hz?l:th,gradeH,hz?th:l,mat,(ax+bx)/2-CX,-gradeH,CZ-(az+bz)/2));};
       const flush=()=>{if(run){put(run.x1,run.z1,run.x2,run.z2);run=null;}};
       for(let k=0;k<n;k++){const mx=x1+(x2-x1)*(k+0.5)/n,mz=z1+(z2-z1)*(k+0.5)/n,draw=!gradeGap(mx,mz,horiz);
         const sx=x1+(x2-x1)*k/n,sz=z1+(z2-z1)*k/n,ex=x1+(x2-x1)*(k+1)/n,ez=z1+(z2-z1)*(k+1)/n;
@@ -396,7 +401,7 @@ function build(L){
   function addWall(x1,z1,x2,z2,ext){const len=Math.hypot(x2-x1,z2-z1);if(len<0.25)return;
     const horiz=Math.abs(z2-z1)<Math.abs(x2-x1),t=ext?T_EXT:T_INT;
     const w=horiz?len:t,d=horiz?t:len,mat=ext?extMat():intMat();
-    const m=box(w,CEIL,d,mat,(x1+x2)/2-CX,0,CZ-(z1+z2)/2);world.add(m);walls.push({mesh:m,mat,ext});}
+    const m=box(w,CEIL,d,mat,(x1+x2)/2-CX,0,CZ-(z1+z2)/2);FG.add(m);walls.push({mesh:m,mat,ext});}
   function key(a,b,horiz){return(horiz?'H':'V')+Math.round(a*2)+'_'+Math.round(b*2);}
   // build a wall along a segment, cutting gaps where doors/doorways sit
   function buildWallAlong(x1,z1,x2,z2,ext){
@@ -416,9 +421,9 @@ function build(L){
     const FH=4.5,railBase=foot?0:-gradeH,pw=M(F.woodD,{roughness:.9}),rw=M(F.wood,{roughness:.9}),wallMat=M(F.stone,{roughness:.9});
     const horiz=Math.abs(z2-z1)<Math.abs(x2-x1),n=Math.max(1,Math.round(len/0.5));let run=null;
     const build=(ax,az,bx,bz)=>{const l=Math.hypot(bx-ax,bz-az);if(l<0.4)return;const hz=Math.abs(bz-az)<Math.abs(bx-ax),np=Math.max(1,Math.round(l/6));
-      if(foot&&gradeH>0)world.add(box(hz?l:0.5,gradeH,hz?0.5:l,wallMat,(ax+bx)/2-CX,-gradeH,CZ-(az+bz)/2));   // solid foundation wall grade->floor
-      for(let k=0;k<=np;k++){const t=k/np;world.add(box(0.3,FH,0.3,pw,ax+(bx-ax)*t-CX,railBase,CZ-(az+(bz-az)*t)));}
-      [1.6,3.4].forEach(ry=>world.add(box(hz?l:0.12,0.25,hz?0.12:l,rw,(ax+bx)/2-CX,railBase+ry,CZ-(az+bz)/2)));};
+      if(foot&&gradeH>0)FG.add(box(hz?l:0.5,gradeH,hz?0.5:l,wallMat,(ax+bx)/2-CX,-gradeH,CZ-(az+bz)/2));   // solid foundation wall grade->floor
+      for(let k=0;k<=np;k++){const t=k/np;FG.add(box(0.3,FH,0.3,pw,ax+(bx-ax)*t-CX,railBase,CZ-(az+(bz-az)*t)));}
+      [1.6,3.4].forEach(ry=>FG.add(box(hz?l:0.12,0.25,hz?0.12:l,rw,(ax+bx)/2-CX,railBase+ry,CZ-(az+bz)/2)));};
     const flush=()=>{if(run){build(run.x1,run.z1,run.x2,run.z2);run=null;}};   // skip door/doorway gaps so they read as open
     for(let k=0;k<n;k++){const mx=x1+(x2-x1)*(k+0.5)/n,mz=z1+(z2-z1)*(k+0.5)/n,draw=!gapHit(mx,mz,horiz);
       const sx=x1+(x2-x1)*k/n,sz=z1+(z2-z1)*k/n,ex=x1+(x2-x1)*(k+1)/n,ez=z1+(z2-z1)*(k+1)/n;
@@ -460,15 +465,15 @@ function build(L){
     const glass=M(0xdfeef2,{transparent:true,opacity:0.18,roughness:.05,metalness:0,side:THREE.DoubleSide,depthWrite:false});  // clear glass; reflects the sky env
     const frame=M(F.white,{roughness:.7}),sill=2.4,h=4.4,ft=0.18;                                                             // painted wood frame + muntins
     if(o.orient==='h'){const cx=(o.x+o.len/2)-CX,cz=CZ-o.y;
-      world.add(box(o.len,h,0.5,glass,cx,sill,cz));
-      world.add(box(o.len,ft,0.62,frame,cx,sill+h/2,cz));world.add(box(o.len,ft,0.62,frame,cx,sill-h/2,cz));      // head + sill
-      world.add(box(ft,h,0.62,frame,cx-o.len/2,sill,cz));world.add(box(ft,h,0.62,frame,cx+o.len/2,sill,cz));      // jambs
-      world.add(box(o.len,0.1,0.58,frame,cx,sill,cz));world.add(box(0.1,h,0.58,frame,cx,sill,cz));}              // muntins (cross)
+      FG.add(box(o.len,h,0.5,glass,cx,sill,cz));
+      FG.add(box(o.len,ft,0.62,frame,cx,sill+h/2,cz));FG.add(box(o.len,ft,0.62,frame,cx,sill-h/2,cz));      // head + sill
+      FG.add(box(ft,h,0.62,frame,cx-o.len/2,sill,cz));FG.add(box(ft,h,0.62,frame,cx+o.len/2,sill,cz));      // jambs
+      FG.add(box(o.len,0.1,0.58,frame,cx,sill,cz));FG.add(box(0.1,h,0.58,frame,cx,sill,cz));}              // muntins (cross)
     else{const cx=o.x-CX,cz=CZ-(o.y+o.len/2);
-      world.add(box(0.5,h,o.len,glass,cx,sill,cz));
-      world.add(box(0.62,ft,o.len,frame,cx,sill+h/2,cz));world.add(box(0.62,ft,o.len,frame,cx,sill-h/2,cz));
-      world.add(box(0.62,h,ft,frame,cx,sill,cz-o.len/2));world.add(box(0.62,h,ft,frame,cx,sill,cz+o.len/2));
-      world.add(box(0.58,0.1,o.len,frame,cx,sill,cz));world.add(box(0.58,h,0.1,frame,cx,sill,cz));}});
+      FG.add(box(0.5,h,o.len,glass,cx,sill,cz));
+      FG.add(box(0.62,ft,o.len,frame,cx,sill+h/2,cz));FG.add(box(0.62,ft,o.len,frame,cx,sill-h/2,cz));
+      FG.add(box(0.62,h,ft,frame,cx,sill,cz-o.len/2));FG.add(box(0.62,h,ft,frame,cx,sill,cz+o.len/2));
+      FG.add(box(0.58,0.1,o.len,frame,cx,sill,cz));FG.add(box(0.58,h,0.1,frame,cx,sill,cz));}});
 
   // ---- doors (open leaf shows swing; doorways are just the gap) ----
   openings.forEach(o=>{ if(o.type!=='door')return; const mat=M(0xf2efe9,{roughness:.7}),s=o.flip?-1:1,by=o.grade?-gradeH:FT;   // grade doors sit at grade
@@ -476,7 +481,7 @@ function build(L){
     const leaf=(HX,HZ,cX,cZ,oX,oZ)=>{                               // hinge world (HX,HZ); closed & open unit dirs (world X/Z)
       const dX=Math.cos(ang)*cX+Math.sin(ang)*oX, dZ=Math.cos(ang)*cZ+Math.sin(ang)*oZ;
       const grp=new THREE.Group(); grp.position.set(HX,0,HZ); grp.rotation.y=Math.atan2(-dZ,dX);
-      grp.add(box(o.len,6.7,0.16,mat,o.len/2,by,0)); world.add(grp); };
+      grp.add(box(o.len,6.7,0.16,mat,o.len/2,by,0)); FG.add(grp); };
     if(o.orient==='h'){const hx=o.hinge?o.x+o.len:o.x, sx=o.hinge?o.x:o.x+o.len;
       leaf(hx-CX,CZ-o.y,Math.sign(sx-hx),0,0,s);}                   // closed along the wall (x), open perpendicular (z; flipped)
     else{const hy=o.hinge?o.y+o.len:o.y, sy=o.hinge?o.y:o.y+o.len;
@@ -485,13 +490,13 @@ function build(L){
   // ---- pocket doors (slide into the wall — shown POCKET_OPEN open, leaf sits in the wall plane) ----
   openings.forEach(o=>{ if(o.type!=='pocket')return; const mat=M(0xf2efe9,{roughness:.7}),by=o.grade?-gradeH:FT;
     const vis=o.len*(1-POCKET_OPEN), atB=!!o.hinge;                 // vis = leaf still spanning the opening; atB = pocket mouth jamb
-    if(o.orient==='h'){const cx=atB?(o.x+o.len-vis/2):(o.x+vis/2); world.add(box(vis,6.7,0.16,mat,cx-CX,by,CZ-o.y));}
-    else{const cy=atB?(o.y+o.len-vis/2):(o.y+vis/2); world.add(box(0.16,6.7,vis,mat,o.x-CX,by,CZ-cy));} });
+    if(o.orient==='h'){const cx=atB?(o.x+o.len-vis/2):(o.x+vis/2); FG.add(box(vis,6.7,0.16,mat,cx-CX,by,CZ-o.y));}
+    else{const cy=atB?(o.y+o.len-vis/2):(o.y+vis/2); FG.add(box(0.16,6.7,vis,mat,o.x-CX,by,CZ-cy));} });
 
   // ---- garage doors (shown OPEN — the panel is rolled up under the ceiling, opening clear below) ----
   openings.forEach(o=>{ if(o.type!=='garage')return; const mat=M(0xd0d5db,{roughness:.5}),ph=0.9,py=CEIL-ph;
-    if(o.orient==='h') world.add(box(o.len,ph,0.7,mat,(o.x+o.len/2)-CX,py,CZ-o.y));
-    else               world.add(box(0.7,ph,o.len,mat,o.x-CX,py,CZ-(o.y+o.len/2))); });
+    if(o.orient==='h') FG.add(box(o.len,ph,0.7,mat,(o.x+o.len/2)-CX,py,CZ-o.y));
+    else               FG.add(box(0.7,ph,o.len,mat,o.x-CX,py,CZ-(o.y+o.len/2))); });
 
   // ---- furniture ----
   const stairRise=((L.plot&&+L.plot.ceilH)||9)+1;   // floor-to-floor rise for stairs (ceiling height + standard floor assembly)
@@ -502,7 +507,7 @@ function build(L){
     return FT;};
   furniture.forEach(f=>{const g=buildPiece(f.type,Math.max(0.5,f.w||3),Math.max(0.5,f.d||3),f,stairRise);
     g.position.set(f.cx-CX,baseYFor(f),CZ-f.cy); g.rotation.y=-(f.rot||0)*Math.PI/180;
-    world.add(g); furnGroups.push(g);});
+    FG.add(g); furnGroups.push(g);});
 
   // ---- labels ----
   function rr(g,x,y,w,h,r){g.beginPath();g.moveTo(x+r,y);g.arcTo(x+w,y,x+w,y+h,r);g.arcTo(x+w,y+h,x,y+h,r);g.arcTo(x,y+h,x,y,r);g.arcTo(x,y,x+w,y,r);g.closePath();}
@@ -512,7 +517,25 @@ function build(L){
     g.fillStyle='#1f2733';g.textAlign='center';g.font='bold 50px -apple-system,Segoe UI,Roboto,sans-serif';g.fillText(name,280,92,528);
     const tex=new THREE.CanvasTexture(cv);tex.anisotropy=8;
     const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,depthTest:false,transparent:true}));sp.scale.set(8.4,2.25,1);return sp;}
-  closed.forEach(r=>{if(!r.name)return;const sp=makeLabel(r.name);sp.position.set(r.x+r.w/2-CX,CEIL-1.2,CZ-(r.y+r.h/2));world.add(sp);labelSprites.push(sp);});
+  closed.forEach(r=>{if(!r.name)return;const sp=makeLabel(r.name);sp.position.set(r.x+r.w/2-CX,CEIL-1.2,CZ-(r.y+r.h/2));FG.add(sp);labelSprites.push(sp);});
+}
+
+// build every floor, each in its own group stacked CEIL feet above the one below.
+function buildAll(L){
+  const shared={plot:L.plot,walls:L.walls,wings:L.wings};
+  const flrs=(Array.isArray(L.floors)&&L.floors.length)?L.floors:[L];
+  const floorH=CEIL, n=flrs.length;
+  const g0=new THREE.Group(); world.add(g0);
+  build(Object.assign({},shared,flrs[0]),{g:g0});
+  const cx0=CX,cz0=CZ,r0=home.r;
+  for(let i=1;i<n;i++){
+    const gi=new THREE.Group(); gi.position.y=i*floorH; world.add(gi);
+    build(Object.assign({},shared,flrs[i]),{g:gi,cx:cx0,cz:cz0,suppressGrade:true,skipGround:true});
+  }
+  CX=cx0;CZ=cz0;
+  home.r=r0+(n-1)*floorH*0.9;
+  home.ty=(n-1)*floorH/2+3;
+  target.set(0,home.ty,0);
 }
 
 /* ---------- orbit controls ---------- */
@@ -542,7 +565,7 @@ function applyLabels(){labelBtn.querySelector('.val').textContent=labelsOn?'On':
 labelBtn.onclick=()=>{labelsOn=!labelsOn;applyLabels();};
 let spin=false;const spinBtn=document.getElementById('spinBtn');
 spinBtn.onclick=()=>{spin=!spin;spinBtn.querySelector('.val').textContent=spin?'On':'Off';};
-document.getElementById('resetBtn').onclick=()=>{R=home.r;TH=home.th;PH=home.ph;target.set(0,3,0);applyCam();};
+document.getElementById('resetBtn').onclick=()=>{R=home.r;TH=home.th;PH=home.ph;target.set(0,home.ty||3,0);applyCam();};
 addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
 
 const uiToggle=document.getElementById('uiToggle');
@@ -553,12 +576,16 @@ addEventListener('keydown',e=>{if((e.key==='h'||e.key==='H')&&!e.metaKey&&!e.ctr
 /* ---------- go ---------- */
 (async function(){
   let L; try{L=await loadLayout();}catch(e){L={rooms:[]};}
-  try{build(L);}catch(err){console.error(err);document.getElementById('subtitle').textContent='Could not build the model from the layout.';}
+  try{buildAll(L);}catch(err){console.error(err);document.getElementById('subtitle').textContent='Could not build the model from the layout.';}
   scene.traverse(o=>{if(!o.material)return;(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{   // dial back image-based lighting so plaster/oak keep their tone
     if('envMapIntensity' in m){m.envMapIntensity=0.4;m.needsUpdate=true;}});});
   applyWallMode();applyLabels();        // apply the Solid-walls / labels-off defaults now that geometry exists
-  const n=(L.furniture||[]).length;
-  document.getElementById('subtitle').textContent=`${(L.rooms||[]).filter(r=>!r.open).length} rooms · ${(L.openings||[]).length} openings · ${n} furniture — built from your 2D plan`;
+  const flrs=(Array.isArray(L.floors)&&L.floors.length)?L.floors:[L];
+  const nf=flrs.length,
+    nr=flrs.reduce((s,f)=>s+(f.rooms||[]).filter(r=>!r.open).length,0),
+    no=flrs.reduce((s,f)=>s+(f.openings||[]).length,0),
+    nfu=flrs.reduce((s,f)=>s+(f.furniture||[]).length,0);
+  document.getElementById('subtitle').textContent=`${nf} floor${nf>1?'s':''} · ${nr} rooms · ${no} openings · ${nfu} furniture — built from your 2D plan`;
   R=home.r;applyCam();
   document.getElementById('loading').style.display='none';
   (function loop(){requestAnimationFrame(loop);if(spin){TH+=0.0025;applyCam();}renderer.render(scene,camera);})();
