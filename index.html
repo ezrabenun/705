@@ -1636,6 +1636,9 @@ svg.addEventListener('pointerdown',e=>{
       drag={kind:'iwmove',wi,isV,isH,oldAxis,adj,ends,sx:p.x,sr:p.r,o:w.map(q=>q.slice())};
       try{svg.setPointerCapture(e.pointerId);}catch(_){}e.preventDefault();return;}
   }
+  // reaching here in wall-edit mode means the click wasn't on a wall handle → deselect the wall.
+  // (a click near another wall re-selects it below via editWallAt, so switching walls still works)
+  if(editWalls){editWalls=false;selectedWall=null;buildWallsPanel();renderPlan();}
   const t=e.target;
   const de=t.getAttribute('data-dimend');           // drag a selected dimension's endpoint
   if(de!=null){const[di,end]=de.split(',');selectedDim=+di;drag={kind:'dimend',idx:+di,end};
