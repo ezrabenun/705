@@ -1345,6 +1345,13 @@ function updateToolButtons(){
 function armTool(type){placeTool=placeTool===type?null:type;placeFurn=null;updateToolButtons();}
 function armFurn(){placeFurn=placeFurn?null:document.getElementById('furnsel').value;placeTool=null;updateToolButtons();}
 
+// is a building point inside a room flagged "open" (a stairwell/void/outdoor area)?
+function inOpenRoom(x,y){
+  for(const r of rooms){if(!r.open)continue;
+    if(Array.isArray(r.poly)&&r.poly.length>=3){let ins=false;for(let i=0,j=r.poly.length-1;i<r.poly.length;j=i++){const xi=r.poly[i][0],yi=r.poly[i][1],xj=r.poly[j][0],yj=r.poly[j][1];if(((yi>y)!==(yj>y))&&(x<(xj-xi)*(y-yi)/(yj-yi)+xi))ins=!ins;}if(ins)return true;}
+    else if(x>=r.x&&x<=r.x+r.w&&y>=r.y&&y<=r.y+r.h)return true;}
+  return false;
+}
 /* ---------- furniture (top-down symbols) ---------- */
 function drawFurniture(){
   furniture.forEach((f,i)=>{
@@ -1466,6 +1473,12 @@ function furnSymbol(type,W,H,g,f){
         A('line',{x1:X(r.cx-px*r.len/2),y1:Y(r.cy-py*r.len/2),x2:e1x,y2:e1y,stroke:ink,'stroke-width':1});
         L(e1x,e1y,e1x-px*4-qx*3,e1y-py*4-qy*3);L(e1x,e1y,e1x-px*4+qx*3,e1y-py*4+qy*3);});
       P.lands.forEach(l=>R(X(l.cx)-l.ex*PX/2,Y(l.cy)-l.ey*PX/2,l.ex*PX,l.ey*PX,'#d8ccb6',.95,1));
+      if(f&&inOpenRoom(f.cx,f.cy)&&P.runs.length){                             // stair in an open room (stairwell) → mark it "UP" to the floor above
+        const r=P.runs[P.runs.length-1],px=r.dir[0],py=r.dir[1];
+        const tx=X(r.cx+px*(r.len/2-0.9)),ty=Y(r.cy+py*(r.len/2-0.9));         // near the top (ascending) end
+        const up=A('text',{x:tx,y:ty,'text-anchor':'middle','dominant-baseline':'central','font-size':9,'font-weight':700,fill:ink,'pointer-events':'none',transform:`rotate(${-(f.rot||0)} ${tx} ${ty})`});
+        up.textContent='UP';
+      }
       break;}
     default:foot(c,.6,2);
   }
