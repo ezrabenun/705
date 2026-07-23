@@ -1373,6 +1373,17 @@ function drawFurniture(){
     }
     svg.appendChild(g);
   });
+  // stairs on the floor below that rise into an open room (stairwell) on this floor — shown coming up, ghosted & marked DN
+  if(activeFloor>0&&floors[activeFloor-1]){
+    (floors[activeFloor-1].furniture||[]).forEach(f=>{
+      if(f.type!=='stairs'||!inOpenRoom(f.cx,f.cy))return;
+      const st=getStair(f),P=stairPath(st.flights,st.turns,st.going,st.width,st.landWs,st.landDs);
+      const W=P.w*PX,H=P.d*PX,sx=fx(f.cx),sy=fyR(f.cy);
+      const g=el('g',{transform:`translate(${sx} ${sy}) rotate(${f.rot||0})`,opacity:0.55,'pointer-events':'none'});
+      furnSymbol('stairs',W,H,g,f,true);   // stairDown=true → "DN" (you descend from here to the floor below)
+      svg.appendChild(g);
+    });
+  }
 }
 const FLOOR_ASSY=1;                                          // standard floor-assembly depth (ft) between ceiling below and floor above
 function floorRise(){return (plot.ceilH||9)+FLOOR_ASSY;}    // floor-to-floor height the stairs must climb (ft)
@@ -1412,7 +1423,7 @@ function stairPath(flights,turns,going,width,landWs,landDs){
   const mx=(x0+x1)/2,my=(y0+y1)/2; runs.forEach(r=>{r.cx-=mx;r.cy-=my;}); lands.forEach(l=>{l.cx-=mx;l.cy-=my;});
   return {runs,lands,w:x1-x0,d:y1-y0,total:si};
 }
-function furnSymbol(type,W,H,g,f){
+function furnSymbol(type,W,H,g,f,stairDown){
   const c=(FURN[type]||{}).c||'#b0b4bb',ink='#5a616b',hw=W/2,hh=H/2;   // furniture line work: dark grey, not black
   const A=(tag,at)=>{const e=el(tag,at);g.appendChild(e);return e;};
   // furniture is drawn as line work only — every shape is an unfilled outline in ink (fill args are ignored)
@@ -1473,11 +1484,12 @@ function furnSymbol(type,W,H,g,f){
         A('line',{x1:X(r.cx-px*r.len/2),y1:Y(r.cy-py*r.len/2),x2:e1x,y2:e1y,stroke:ink,'stroke-width':1});
         L(e1x,e1y,e1x-px*4-qx*3,e1y-py*4-qy*3);L(e1x,e1y,e1x-px*4+qx*3,e1y-py*4+qy*3);});
       P.lands.forEach(l=>R(X(l.cx)-l.ex*PX/2,Y(l.cy)-l.ey*PX/2,l.ex*PX,l.ey*PX,'#d8ccb6',.95,1));
-      if(f&&inOpenRoom(f.cx,f.cy)&&P.runs.length){                             // stair in an open room (stairwell) → mark it "UP" to the floor above
+      const stairLbl=stairDown?'DN':((f&&inOpenRoom(f.cx,f.cy))?'UP':null);    // stair in an open-room stairwell: UP on the floor it climbs from, DN when shown coming up onto the floor above
+      if(stairLbl&&P.runs.length){
         const r=P.runs[P.runs.length-1],px=r.dir[0],py=r.dir[1];
         const tx=X(r.cx+px*(r.len/2-0.9)),ty=Y(r.cy+py*(r.len/2-0.9));         // near the top (ascending) end
-        const up=A('text',{x:tx,y:ty,'text-anchor':'middle','dominant-baseline':'central','font-size':9,'font-weight':700,fill:ink,'pointer-events':'none',transform:`rotate(${-(f.rot||0)} ${tx} ${ty})`});
-        up.textContent='UP';
+        const lb=A('text',{x:tx,y:ty,'text-anchor':'middle','dominant-baseline':'central','font-size':9,'font-weight':700,fill:ink,'pointer-events':'none',transform:`rotate(${-(f.rot||0)} ${tx} ${ty})`});
+        lb.textContent=stairLbl;
       }
       break;}
     default:foot(c,.6,2);
