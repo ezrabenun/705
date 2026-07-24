@@ -25,6 +25,31 @@ you click the button), falling back to the shared default via `/kv`. Toggle
 walls (glass / low / off), furniture, labels, and auto-rotate; drag to orbit,
 scroll to zoom, right-drag to pan. Re-open it after editing to see changes.
 
+The **🏡 Render** button opens [first_floor_render.html](first_floor_render.html),
+the styled "modern French country" render of the same model.
+
+## Photoreal views (AI)
+
+In the Render view, pick a room by name from the dropdown and hit
+**📸 Photoreal views**. The page points a camera at four corners of that room,
+captures each as a rough render, and sends them to Google's **Gemini 2.5 Flash
+Image** model, which returns photorealistic photos of the room — faithful to
+your layout (walls, windows, doors, and furniture stay where you drew them) and
+finished in the modern French-country palette. Results open in a grid you can
+download or regenerate.
+
+The API key is never exposed to the browser: the page posts to a Pages Function
+([functions/photoreal.js](functions/photoreal.js)) at `/photoreal`, which calls
+Gemini server-side using a secret.
+
+### One-time API-key setup (Cloudflare dashboard)
+
+1. Create a Google AI Studio API key: <https://aistudio.google.com/apikey>.
+2. **Pages project → Settings → Variables and Secrets →** add a **secret**
+   named `GEMINI_API_KEY` = your key. (Set it for Production, and Preview if used.)
+3. Redeploy. Without the secret, the tool shows a "GEMINI_API_KEY is not set"
+   message instead of photos.
+
 ## Hosting
 
 Deployed on **Cloudflare Pages** (connected to this GitHub repo — every push to

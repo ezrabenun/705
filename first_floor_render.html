@@ -37,6 +37,28 @@
     box-shadow:0 6px 24px rgba(20,28,40,.12);color:var(--ink);font:600 12px -apple-system,Segoe UI,Roboto,sans-serif;
     padding:8px 14px;cursor:pointer}
   #uiToggle:hover{border-color:rgba(31,39,51,.28)}
+  #roomSel{appearance:none;-webkit-appearance:none;cursor:pointer}
+  #photoBtn[disabled]{opacity:.5;cursor:default}
+  /* ---- photoreal results overlay ---- */
+  #photos{position:fixed;inset:0;z-index:100;background:rgba(16,20,26,.94);display:flex;flex-direction:column}
+  #photos[hidden]{display:none}
+  .pbar{display:flex;align-items:center;gap:10px;padding:12px 16px;color:#fff}
+  .pbar b{font-size:14px}
+  .pbar .btn{background:rgba(255,255,255,.12);color:#fff;border-color:rgba(255,255,255,.22)}
+  .pbar .btn:hover{border-color:rgba(255,255,255,.5)}
+  #pnote{color:#c4cdd8;font-size:12px}
+  .pgrid{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:0 16px 16px;overflow:auto}
+  .pcell{position:relative;background:#0d1014;border:1px solid rgba(255,255,255,.06);border-radius:12px;
+    overflow:hidden;display:flex;align-items:center;justify-content:center;min-height:230px}
+  .pcell img{width:100%;height:100%;object-fit:cover;display:block}
+  .pcell .st{color:#aeb7c2;font-size:12.5px;line-height:1.5;padding:22px;text-align:center;max-width:92%}
+  .pcell .spin{width:22px;height:22px;border:2px solid rgba(255,255,255,.25);border-top-color:#fff;
+    border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .pcell a.dl{position:absolute;bottom:10px;right:10px;background:rgba(0,0,0,.55);color:#fff;text-decoration:none;
+    font-size:11px;font-weight:600;padding:6px 10px;border-radius:8px;backdrop-filter:blur(6px)}
+  .pcell a.dl:hover{background:rgba(0,0,0,.8)}
+  @media(max-width:720px){.pgrid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -58,6 +80,20 @@
   <button class="btn" id="labelBtn">Labels <span class="val">Off</span></button>
   <button class="btn" id="spinBtn">Auto-rotate <span class="val">Off</span></button>
   <button class="btn" id="resetBtn">Reset view <span class="val">↺</span></button>
+  <div style="height:1px;background:var(--line);margin:1px 0"></div>
+  <select class="btn" id="roomSel" style="padding:8px 10px"></select>
+  <button class="btn" id="photoBtn">📸 Photoreal views <span class="val">→</span></button>
+</div>
+
+<div id="photos" hidden>
+  <div class="pbar">
+    <b id="ptitle">Photoreal views</b>
+    <span id="pnote"></span>
+    <span style="flex:1"></span>
+    <button class="btn" id="pregen">↻ Regenerate</button>
+    <button class="btn" id="pclose">✕ Close</button>
+  </div>
+  <div class="pgrid" id="pgrid"></div>
 </div>
 
 <div id="hint" class="hud"><b>Drag</b> orbit · <b>Scroll</b> zoom · <b>Right-drag</b> pan</div>
@@ -295,7 +331,7 @@ function buildPiece(type,w,d,f,rise){const g=new THREE.Group();
 }
 
 /* ============ build the model from the layout ============ */
-const walls=[],labelSprites=[],furnGroups=[],floorGroups=[];
+const walls=[],labelSprites=[],furnGroups=[],floorGroups=[],ROOMS=[];   // ROOMS: named interiors, world-space, for photoreal framing
 let CX=0,CZ=0, home={r:120,th:0.78,ph:1.12};   // lower, more architectural eye line
 
 function build(L,opts){
@@ -328,6 +364,11 @@ function build(L,opts){
   CX=(minX+maxX)/2; CZ=(minZ+maxZ)/2;
   const span=Math.max(maxX-minX,maxZ-minZ,20); home.r=span*1.5+18;
   if(opts.cx!=null){CX=opts.cx;CZ=opts.cz;}   // upper floors reuse the foundation's centre so levels line up
+
+  // record named interior rooms in world space so the photoreal tool can point a camera at them
+  const baseY=opts.baseY||0;
+  closed.forEach(r=>{ if(!r.name)return;
+    ROOMS.push({name:r.name, wx:r.x+r.w/2-CX, wz:CZ-(r.y+r.h/2), w:r.w, h:r.h, baseY}); });
 
   // ground — sits at grade, i.e. `gradeH` below the first floor. Upper floors have no grade/ground.
   const gradeH=opts.suppressGrade?0:((L.plot&&+L.plot.grade)||0);
@@ -524,15 +565,16 @@ function build(L,opts){
 
 // build every floor, each in its own group stacked CEIL feet above the one below.
 function buildAll(L){
+  ROOMS.length=0;
   const shared={plot:L.plot,walls:L.walls,wings:L.wings};
   const flrs=(Array.isArray(L.floors)&&L.floors.length)?L.floors:[L];
   const floorH=CEIL, n=flrs.length;
   const g0=new THREE.Group(); world.add(g0); floorGroups.push(g0);
-  build(Object.assign({},shared,flrs[0]),{g:g0});
+  build(Object.assign({},shared,flrs[0]),{g:g0,baseY:0});
   const cx0=CX,cz0=CZ,r0=home.r;
   for(let i=1;i<n;i++){
     const gi=new THREE.Group(); gi.position.y=i*floorH; world.add(gi); floorGroups.push(gi);
-    build(Object.assign({},shared,flrs[i]),{g:gi,cx:cx0,cz:cz0,suppressGrade:true,skipGround:true});
+    build(Object.assign({},shared,flrs[i]),{g:gi,cx:cx0,cz:cz0,baseY:i*floorH,suppressGrade:true,skipGround:true});
   }
   CX=cx0;CZ=cz0;
   home.r=r0+(n-1)*floorH*0.9;
@@ -581,6 +623,90 @@ function setClean(on){document.body.classList.toggle('clean',on);uiToggle.textCo
 uiToggle.onclick=()=>setClean(!document.body.classList.contains('clean'));
 addEventListener('keydown',e=>{if((e.key==='h'||e.key==='H')&&!e.metaKey&&!e.ctrlKey)setClean(!document.body.classList.contains('clean'));});
 
+/* ---------- photoreal: capture room views → Gemini 2.5 Flash Image ---------- */
+const CAP_W=1152, CAP_H=768;                                    // fixed 3:2 frame, independent of the window
+const capRT=new THREE.WebGLRenderTarget(CAP_W,CAP_H,{minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter});
+capRT.texture.encoding=THREE.sRGBEncoding;                      // match the on-screen canvas (else the capture reads dark)
+const capCam=new THREE.PerspectiveCamera(52,CAP_W/CAP_H,0.1,6000);
+const capBuf=new Uint8Array(CAP_W*CAP_H*4);
+function captureFrom(pos,tgt){                                  // render one viewpoint offscreen → JPEG data URL
+  capCam.position.copy(pos);capCam.up.set(0,1,0);capCam.lookAt(tgt);capCam.updateProjectionMatrix();
+  renderer.setRenderTarget(capRT);renderer.render(scene,capCam);renderer.setRenderTarget(null);
+  renderer.readRenderTargetPixels(capRT,0,0,CAP_W,CAP_H,capBuf);
+  const cv=document.createElement('canvas');cv.width=CAP_W;cv.height=CAP_H;
+  const ctx=cv.getContext('2d'),img=ctx.createImageData(CAP_W,CAP_H),row=CAP_W*4;
+  for(let y=0;y<CAP_H;y++)img.data.set(capBuf.subarray((CAP_H-1-y)*row,(CAP_H-y)*row),y*row);   // flip Y (GL is bottom-up)
+  ctx.putImageData(img,0,0);
+  return cv.toDataURL('image/jpeg',0.9);
+}
+// force a clean interior scene (solid full-height walls, all furniture, no floating labels) just for the capture
+function setCaptureScene(on){
+  if(on){walls.forEach(({mesh})=>{mesh.visible=true;mesh.scale.y=1;mesh.position.y=CEIL/2;});
+    furnGroups.forEach(g=>g.visible=true);labelSprites.forEach(s=>s.visible=false);}
+  else{applyWallMode();furnGroups.forEach(g=>g.visible=furnOn);applyLabels();}
+}
+function roomViewpoints(room){                                 // four corner cameras looking across the room
+  const {wx,wz,w,h,baseY}=room,w2=w/2,h2=h/2,eye=baseY+5.6,look=baseY+3.0;
+  return [[-1,-1],[1,-1],[1,1],[-1,1]].map(([sx,sz])=>({
+    pos:new THREE.Vector3(wx+sx*w2*0.82,eye,wz+sz*h2*0.82),
+    tgt:new THREE.Vector3(wx-sx*w2*0.4,look,wz-sz*h2*0.4)}));
+}
+function captureRoom(room){                                    // synchronous: no visible flicker (canvas repaints only after restore)
+  setCaptureScene(true);
+  const shots=roomViewpoints(room).map(v=>captureFrom(v.pos,v.tgt));
+  setCaptureScene(false);
+  return shots;
+}
+const STYLE="modern French country style: lime-washed off-white plaster walls, wide-plank warm oak floors, "
+  +"muted sage-green cabinetry and painted doors, honed natural-stone counters, wrought-iron and antique-brass fixtures, "
+  +"natural linen and wool textiles, soft warm natural daylight";
+function photoPrompt(name){
+  return `Turn this rough 3D render into a photorealistic interior photograph of a residential ${name}. `
+    +`Preserve the EXACT camera angle, room proportions and the positions of every wall, window, door and piece of furniture shown — `
+    +`do not add, remove or move any of them. Finish it in a ${STYLE}. Add a believable ceiling and realistic materials, `
+    +`lighting, soft shadows and fine detail. Architectural interior photography, photorealistic, high detail, no text, no labels, no watermarks.`;
+}
+async function genOne(dataURL,name){
+  const r=await fetch('photoreal',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({image:dataURL,prompt:photoPrompt(name)})});
+  let j; try{j=await r.json();}catch(e){throw new Error('Server returned a non-JSON response.');}
+  if(!r.ok||j.error)throw new Error(j.error||('HTTP '+r.status));
+  return j.image;
+}
+const roomSel=document.getElementById('roomSel'),photoBtn=document.getElementById('photoBtn'),
+  photos=document.getElementById('photos'),pgrid=document.getElementById('pgrid'),
+  pnote=document.getElementById('pnote'),ptitle=document.getElementById('ptitle');
+function fillRooms(){
+  const names=[...new Set(ROOMS.map(r=>r.name))];
+  roomSel.innerHTML=names.length?names.map(n=>`<option>${n.replace(/</g,'&lt;')}</option>`).join('')
+    :'<option value="">(no named rooms)</option>';
+  photoBtn.disabled=!names.length;
+}
+let genToken=0;
+async function runPhotos(){
+  const name=roomSel.value,room=ROOMS.find(r=>r.name===name); if(!room)return;
+  const token=++genToken;
+  ptitle.textContent=name; photos.hidden=false;
+  const shots=captureRoom(room);
+  pgrid.innerHTML='';
+  const cells=shots.map((_,i)=>{const c=document.createElement('div');c.className='pcell';
+    c.innerHTML='<div class="st"><div class="spin"></div>Rendering view '+(i+1)+'…</div>';pgrid.appendChild(c);return c;});
+  let done=0; pnote.textContent='Generating '+shots.length+' views…';
+  await Promise.all(shots.map(async(src,i)=>{
+    try{const img=await genOne(src,name); if(token!==genToken)return;
+      cells[i].innerHTML='';
+      const im=new Image();im.src=img;im.alt=name+' view '+(i+1);cells[i].appendChild(im);
+      const a=document.createElement('a');a.className='dl';a.href=img;
+      a.download=name.replace(/\W+/g,'_')+'_view'+(i+1)+'.png';a.textContent='Download';cells[i].appendChild(a);
+    }catch(e){ if(token!==genToken)return;
+      cells[i].innerHTML='<div class="st">⚠ '+String(e.message||e).replace(/</g,'&lt;')+'</div>'; }
+    finally{ if(token===genToken){done++;pnote.textContent=done+' / '+shots.length+' done';} }
+  }));
+}
+photoBtn.onclick=runPhotos;
+document.getElementById('pregen').onclick=runPhotos;
+document.getElementById('pclose').onclick=()=>{genToken++;photos.hidden=true;};
+
 /* ---------- go ---------- */
 (async function(){
   let L; try{L=await loadLayout();}catch(e){L={rooms:[]};}
@@ -595,6 +721,7 @@ addEventListener('keydown',e=>{if((e.key==='h'||e.key==='H')&&!e.metaKey&&!e.ctr
     no=flrs.reduce((s,f)=>s+(f.openings||[]).length,0),
     nfu=flrs.reduce((s,f)=>s+(f.furniture||[]).length,0);
   document.getElementById('subtitle').textContent=`${nf} floor${nf>1?'s':''} · ${nr} rooms · ${no} openings · ${nfu} furniture — built from your 2D plan`;
+  fillRooms();                          // populate the room picker for the photoreal tool
   R=home.r;applyCam();
   document.getElementById('loading').style.display='none';
   (function loop(){requestAnimationFrame(loop);if(spin){TH+=0.0025;applyCam();}renderer.render(scene,camera);})();
